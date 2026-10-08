@@ -37,7 +37,50 @@ references (file, command, output) when marking.
 - [x] Research sources read at full-text level (Phase 1 opener) — evidence: docs/research-landscape.md (Phase 1 update)
 - [x] Phase 1 proposal approved by project owner (gate for all implementation work) — evidence: owner-issued Phase 1 master prompt (2026-10-07)
 
-## Phase 2 — Causal feature layer, forecasting baselines & lead-time evaluation (current)
+## Phase 3 — Unpaired forecasting, attributed early warning & temporal model benchmark (current)
+
+Order follows the Phase 3 execution steps (§53). Evidence added as items complete.
+
+### Dataset design
+- [ ] Phase 2 regression suite passes — evidence: pytest output
+- [ ] Unpaired dataset design documented — evidence: docs/dataset-spec.md + config
+- [ ] Independent benign scenarios generated — evidence: dataset manifest
+- [ ] Independent attack scenarios generated — evidence: dataset manifest
+- [ ] Pair structure retained for diagnostic experiments (COUNTERFACTUAL category) — evidence: config + docs
+- [ ] Train/validation/test scenario isolation verified — evidence: tests
+- [ ] Attack-family OOD split implemented (pre-registered) — evidence: config + tests
+- [ ] Larger multi-seed dataset generated — evidence: manifest scenario counts
+
+### Baseline re-evaluation
+- [ ] Logistic baseline rerun — evidence: metrics output
+- [ ] Conventional baseline rerun (same calibration policy) — evidence: metrics output
+- [ ] Attribution policy verified (Metric A independent / Metric B counterfactual) — evidence: metrics
+- [ ] False-warning rate measured — evidence: metrics
+- [ ] Lead-time distribution measured (percentiles, nulls) — evidence: metrics
+- [ ] Attack-specific lead time measured — evidence: per-attack results
+- [ ] Sudden-attack behavior reported separately — evidence: results
+
+### Temporal models
+- [ ] GRU/LSTM implemented — evidence: src/quantumattack/models/
+- [ ] TCN implemented (causal convolutions) — evidence: src/quantumattack/models/
+- [ ] TCN causality test added — evidence: tests
+- [ ] Identical evaluation harness used — evidence: harness runs
+- [ ] Model parameters/configuration recorded — evidence: experiment manifests
+- [ ] Temporal leakage tests extended (sequence invariance) — evidence: tests
+- [ ] Sequence construction tested (ordering, boundaries) — evidence: tests
+- [ ] Ablations completed (feature/model/attack) — evidence: ablation outputs
+- [ ] Multi-seed evaluation completed — evidence: outputs
+- [ ] OOD experiment completed — evidence: outputs
+- [ ] Statistical uncertainty reported — evidence: report
+- [ ] Results reproduced — evidence: rerun equality
+
+### Documentation & closure
+- [ ] decisions.md updated — evidence: decisions.md
+- [ ] flow.md updated — evidence: flow.md
+- [ ] handoff.md updated — evidence: handoff.md
+- [ ] Phase 3 report generated — evidence: docs/phase3-final-report.md
+
+## Phase 2 — Causal feature layer, forecasting baselines & lead-time evaluation (complete; commits 2f5bf74, 8b30de0)
 
 Order follows the Phase 2 execution steps (§61). Evidence added as items complete.
 

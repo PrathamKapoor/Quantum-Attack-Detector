@@ -105,6 +105,8 @@ def run_evaluation(
     warning_policy: WarningPolicy | None = None,
     threshold_policy: ThresholdPolicy | None = None,
     experiment_id: str = "phase2-baseline",
+    counterfactual_data_dir: Path | None = None,
+    counterfactual_features_dir: Path | None = None,
 ) -> HarnessResult:
     """Complete Phase 2 evaluation over a Phase 1 dataset.
 
@@ -123,6 +125,12 @@ def run_evaluation(
 
     manifest = json.loads((data_dir / "manifest.json").read_text(encoding="utf-8"))
     entries = manifest["scenarios"]
+    # COUNTERFACTUAL category (Phase 3): Phase 2 paired runs loaded alongside as a
+    # diagnostic partition — train only, never the test population (§8)
+    if counterfactual_data_dir is not None:
+        cf_manifest = json.loads(
+            (counterfactual_data_dir / "manifest.json").read_text(encoding="utf-8"))
+        entries = entries + cf_manifest["scenarios"]
 
     # load FEATURE frames if precomputed, else raw (compute features here)
     frames: dict[str, pd.DataFrame] = {}
@@ -131,7 +139,17 @@ def run_evaluation(
         if fpath.exists():
             frames[s["scenario_id"]] = pd.read_parquet(fpath)
         else:
-            frames[s["scenario_id"]] = pd.read_parquet(data_dir / f"{s['scenario_id']}.parquet")
+            for d, fdir in ((data_dir, features_dir), (counterfactual_data_dir, counterfactual_features_dir)):
+                if d is None:
+                    continue
+                p1 = fdir / f"{s['scenario_id']}.parquet"
+                if p1.exists():
+                    frames[s["scenario_id"]] = pd.read_parquet(p1)
+                    break
+            else:
+                frames[s["scenario_id"]] = pd.read_parquet(data_dir / f"{s['scenario_id']}.parquet")
+    # paired-scenario registry for Metric B (COUNTERFACTUAL = paired runs)
+    run_evaluation._paired_ids = {s["scenario_id"] for s in entries if s.get("pair_id")}
 
     # split (scenario-level; pairs isolated)
     split = split_scenarios(entries, sc)
@@ -171,13 +189,28 @@ def run_evaluation(
     # pair-gated attribution (Phase 2 gate, master prompt §53): warnings whose matched
     # benign twin fired identically are NOT attack anticipation (observed artifact on
     # intercept-resend). Attributed summary counts only benign-twin-confirmed warnings.
-    from ..baselines.warnings import attribute_warnings, summarize_lead_times_attributed
+    from ..baselines.warnings import (
+        attribute_warnings, summarize_lead_times_attributed, false_warning_analysis,
+    )
 
     h_max = max(mc.horizons)
     attributed = attribute_warnings(warning_results, warning_results, h_max)
     lt_attributed = summarize_lead_times_attributed(warning_results, warning_results, h_max, attributed)
     fwr = false_early_warning_rate(warning_results)
     fwr_attributed = false_early_warning_rate(list(attributed.values()))
+    # Phase 3 metrics (pre-registered in docs/dataset-spec-phase3.md):
+    # Metric A — independent early warning: per-horizon unpaired lead-time summary
+    metric_a = {
+        str(h): summarize_lead_times(
+            [r for r in warning_results if r.horizon == h], category_filter="anticipatory")
+        for h in mc.horizons
+    }
+    # Metric B — counterfactual attribution: on COUNTERFACTUAL (paired) scenarios only
+    cf_attack = [r for r in warning_results if r.horizon == h_max and _is_paired(r.scenario_id)]
+    cf_benign = [r for r in warning_results if r.horizon == h_max and _is_paired(r.scenario_id)
+                 and r.scenario_class != "ATTACK"]
+    metric_b = summarize_lead_times_attributed(cf_attack, warning_results, h_max, attributed)
+    fwa = false_warning_analysis(warning_results)
 
     # conventional detector: calibrate on benign TRAIN portions only (master prompt §14)
     benign_train = [sid for sid in split.train if not sid.startswith("attack-")]
@@ -246,8 +279,11 @@ def run_evaluation(
             "horizon_metrics": {str(k): v for k, v in horizon_metrics.items()},
             "lead_time_summary": lt_summary,
             "lead_time_summary_attributed": lt_attributed,
+            "metric_a_independent": metric_a,
+            "metric_b_counterfactual": metric_b,
             "false_early_warning_rates": fwr,
             "false_early_warning_rates_attributed": fwr_attributed,
+            "false_warning_analysis": fwa,
             "conventional_summary": {
                 "threshold_method": conventional_summary.get("threshold_method"),
                 "lead_time_summary": conventional_summary.get("lead_time_summary"),
@@ -259,6 +295,13 @@ def run_evaluation(
 
     return HarnessResult(preds, horizon_metrics, lt_summary, conventional_summary,
                          fwr, split, experiment_manifest)
+
+
+def _is_paired(scenario_id: str) -> bool:
+    """Phase 2 COUNTERFACTUAL runs come from the phase1 dataset (paired); Phase 3
+    runs are unpaired. The harness receives a combined entries list, so pairing is
+    resolved from the DATASET the scenario came from (phase1 → paired)."""
+    return scenario_id in getattr(run_evaluation, "_paired_ids", set())
 
 
 def _scenario_warning_rate(test_preds: pd.DataFrame, horizon: int, wp: WarningPolicy) -> float | None:

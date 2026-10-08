@@ -23,6 +23,9 @@ class SplitConfig:
     val_fraction: float = 0.2    # test = remainder
     ood_holdout_family: str | None = None  # e.g. "intercept_resend" (later phases)
     seed: int = 0
+    # Phase 3 (pre-registered in docs/dataset-spec-phase3.md): matched-pair
+    # scenarios are a COUNTERFACTUAL diagnostic category — train only, never test.
+    counterfactual_to_train: bool = False
 
     def validate(self) -> None:
         if not (0 < self.train_fraction < 1) or not (0 < self.val_fraction < 1):
@@ -99,8 +102,15 @@ def split_scenarios(
             if any(m.get("attack_type") == cfg.ood_holdout_family for m in members):
                 ood_units.add(key)
 
+    # COUNTERFACTUAL category: matched pairs to TRAIN only (pre-registered §8)
+    cf_units: set[str] = set()
+    if cfg.counterfactual_to_train:
+        for key, members in units.items():
+            if any(m.get("pair_id") for m in members):
+                cf_units.add(key)
+
     # deterministic ordering: sort unit keys
-    remaining = sorted(k for k in units if k not in ood_units)
+    remaining = sorted(k for k in units if k not in ood_units and k not in cf_units)
     # hash-based assignment for reproducibility: sort by (hash(seed:key), key)
     def sort_key(k: str) -> tuple:
         h = int.from_bytes(hashlib.sha256(f"{cfg.seed}:{k}".encode()).digest()[:8], "big")
@@ -111,7 +121,7 @@ def split_scenarios(
     n_train = round(cfg.train_fraction * n)
     n_val = round(cfg.val_fraction * n)
 
-    train_units = remaining[:n_train]
+    train_units = remaining[:n_train] + sorted(cf_units)
     val_units = remaining[n_train:n_train + n_val]
     test_units = remaining[n_train + n_val:] + sorted(ood_units)
 

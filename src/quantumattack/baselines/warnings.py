@@ -287,24 +287,57 @@ def summarize_lead_times(
     summary: dict[str, dict] = {}
     for atype, leads in sorted(by_type.items()):
         arr = np.array(leads)
-        summary[atype] = {
+        entry = {
             "n_scenarios": total[atype],
             "n_successful_warnings": len(leads),
             "warning_success_rate": len(leads) / total[atype],
             "median_lead_blocks": float(np.median(arr)),
             "mean_lead_blocks": float(arr.mean()),
+            "std_lead_blocks": float(arr.std()) if len(arr) > 1 else None,
             "min_lead_blocks": float(arr.min()),
             "max_lead_blocks": float(arr.max()),
+            "p25_lead_blocks": float(np.quantile(arr, 0.25)),
+            "p75_lead_blocks": float(np.quantile(arr, 0.75)),
+            "p90_lead_blocks": float(np.quantile(arr, 0.90)),
             "median_lead_ms": float(np.median(arr)) * BLOCK_MS,
             "mean_lead_ms": float(arr.mean()) * BLOCK_MS,
         }
+        summary[atype] = entry
     # attacks with zero successful warnings
     for atype, n in total.items():
         if atype not in summary:
             summary[atype] = {
                 "n_scenarios": n, "n_successful_warnings": 0,
                 "warning_success_rate": 0.0, "median_lead_blocks": None,
-                "mean_lead_blocks": None, "min_lead_blocks": None,
-                "max_lead_blocks": None, "median_lead_ms": None, "mean_lead_ms": None,
+                "mean_lead_blocks": None, "std_lead_blocks": None,
+                "min_lead_blocks": None, "max_lead_blocks": None,
+                "p25_lead_blocks": None, "p75_lead_blocks": None,
+                "p90_lead_blocks": None, "median_lead_ms": None, "mean_lead_ms": None,
             }
     return summary
+
+
+def false_warning_analysis(
+    results: list[ScenarioWarningResult],
+) -> dict:
+    """False-warning behavior per benign class (master prompt §22): NORMAL and
+    BENIGN_DRIFT evaluated separately — scenario %, warnings/scenario, duration,
+    earliest warning."""
+    out: dict[str, dict] = {}
+    for cls in ("NORMAL", "BENIGN_DRIFT"):
+        scenarios = [r for r in results if r.scenario_class == cls]
+        if not scenarios:
+            continue
+        n_warn = [r.n_warnings for r in scenarios]
+        durations = [r.warning_duration_blocks for r in scenarios if r.n_warnings > 0]
+        earliest = [r.warning_time for r in scenarios if r.warning_time is not None]
+        flagged = sum(1 for w in n_warn if w > 0)
+        out[cls] = {
+            "n_scenarios": len(scenarios),
+            "pct_scenarios_with_warning": flagged / len(scenarios),
+            "mean_warnings_per_scenario": float(np.mean(n_warn)),
+            "mean_warning_duration_blocks": float(np.mean(durations)) if durations else 0.0,
+            "earliest_warning_block": float(np.min(earliest)) if earliest else None,
+            "mean_earliest_warning_block": float(np.mean(earliest)) if earliest else None,
+        }
+    return out
