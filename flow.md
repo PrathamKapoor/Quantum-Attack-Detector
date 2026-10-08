@@ -5,10 +5,10 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
-Phase 1 COMPLETE (2026-10-08): the Phase 1 simulator pipeline is implemented and
-verified (40 tests passing; 65-scenario validation dataset exported). Sections 1–4
-below use ACTUAL file/function names from `src/quantumattack/`. Later-phase stages
-(feature engine expansion, models, dashboard) remain design-only.
+Phase 2 COMPLETE (2026-10-08): causal feature layer + forecasting baselines +
+lead-time evaluation implemented and verified (63 tests passing; results in
+`artifacts/phase2/`, git-ignored). Sections 1–4 use ACTUAL file/function names from
+`src/quantumattack/`. Deep temporal models, GNN, dashboard remain design-only.
 
 ## 1. Implemented flow (VERIFIED — Phase 1)
 
@@ -93,6 +93,50 @@ python -m quantumattack.simulator.generate --config configs/simulation/phase1.ya
 - **Analysis**: `scripts/analyze_precursors.py` compares attack vs matched benign
   runs across all seeds (effect sizes in benign σ units; Cat 1–4 classification).
 
+## 3b. Phase 2 evaluation flow (VERIFIED)
+
+```text
+data/phase1/*.parquet (Phase 1 telemetry)
+    ↓  harness.run_evaluation(...)                       [evaluation/harness.py]
+    ↓  features precomputed or computed here             WHY: causal features (D-019)
+    ↓  splits.split_scenarios(entries, SplitConfig)      WHY: scenario-level, pairs atomic (D-021)
+    ↓  pair_isolation_check(split, entries)              WHY: matched pairs never cross splits (§21)
+    ↓  logistic.train_forecaster(frames, split, mc)      WHY: per-horizon LogisticRegression (D-022)
+    │    └── build_xy(...)                               WHY: y_H(t)=1 iff t<onset≤t+H; y=0 for t≥onset (§19)
+    │    └── fit_horizon_model(...)                      WHY: scaler fit on TRAIN only (§24)
+    ↓  logistic.predict_frames(frames, eval_ids, models) WHY: P(attack within H) per block (§26)
+    ↓  metrics: classification_metrics + calibration_error  WHY: AUROC/AUPRC/Brier/ECE (§27/§28)
+    ↓  warnings.evaluate_scenario_warnings(...)          WHY: warning policy → warning times (D-023)
+    ↓  warnings.attribute_warnings(...)                  WHY: pair-gated attribution — warnings whose
+    │                                                       matched benign twin fired identically are
+    │                                                       NOT attack anticipation (Phase 2 gate fix, §53)
+    ↓  conventional: calibrate_thresholds (benign TRAIN only) + detect_warnings
+    ↓  forecast-vs-conventional comparison               WHY: lead-time gain, not accuracy (§36)
+    ↓
+artifacts/phase2/eval/{predictions.parquet, metrics.json, experiment_manifest.json}
+```
+
+Commands (all reproducible; artifacts git-ignored):
+
+```powershell
+PYTHONPATH=src python -m quantumattack.features_cli --data data/phase1 --out artifacts/phase2/features
+PYTHONPATH=src python -m quantumattack.ablation --out artifacts/phase2/ablation
+python scripts/evaluate_early_warning.py   # thin wrapper over harness.run_evaluation
+```
+
+Key Phase 2 findings (evidence: artifacts/phase2/eval/metrics.json + ablation):
+
+- Row-level discrimination exists (AUROC 0.70–0.84 by horizon/split seed).
+- Attributed anticipatory warnings (benign-twin-gated) = 0% at H=100, thr=0.5/k=3:
+  on PAIRED scenarios the benign twin fires identically pre-onset (bit-identical
+  benign trajectory), so pre-onset warnings are benign-drift alarming, not attack
+  anticipation. Policy selection on VAL (thr=0.5/k=3) keeps 100% pre-onset attack
+  warnings at 64–79% benign false-warning rate — the model does not separate
+  benign drift from precursor drift at this policy/dataset scale.
+- Ablation: group D (all features) best at H=10 (AUROC 0.839 vs 0.813 base);
+  differences help H=10; temporal stats improve calibration (Brier 0.010–0.08 vs
+  0.19 base) but not lead-time attribution.
+
 ## 4. Downstream flow (DESIGN — not yet implemented)
 
 ```text
@@ -119,9 +163,10 @@ statuses only).
 
 ## 6. Current execution flow of record
 
-Phase 0 (2026-10-07): audit → environment probes → snippet-level research → docs →
-initial commit. Phase 1 (2026-10-08): docs re-read → environment re-validation →
-research landscape (20+ sources verified) → threat model/attack/precursor taxonomies →
-time semantics → telemetry/feature/dataset specs → simulator package (src/quantumattack,
-15 modules) → 40 tests passing → 65-scenario dataset (data/phase1) → precursor
-analysis (docs/precursor-analysis.md) → decisions D-008..D-017.
+Phase 0 (2026-10-07): audit → docs → initial commit (59892a9). Phase 1 (2026-10-08):
+research + simulator + causal labels → commit 16f8406. Phase 2 (2026-10-08): causal
+feature layer (154 features, schema v2) → conventional threshold detector →
+scenario-level splits with pair isolation → logistic per-horizon forecaster (train-only
+scaling) → warning policy + lead-time + false-warning evaluation → pair-gated
+attribution (Phase 2 gate fix) → ablations A/B/C/D → multi-seed evaluation (split
+seeds 0–3) → reproducibility verified (metrics identical) → decisions D-018..D-025.

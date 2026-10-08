@@ -74,3 +74,34 @@ Requirements for later phases (documented, not implemented):
 - Per-scenario normalization: FORBIDDEN for forecasting features; if any model needs
   normalization, fit scalers on TRAIN scenarios only (leakage rule).
 - Feature selection by mutual information with labels: later phase (and only on train).
+
+---
+
+## Implementation status (Phase 2, 2026-10-08)
+
+Implemented in `src/quantumattack/features.py` (schema v2, 154 derived features):
+
+| Level | Features | Windows (blocks) | Causality | Missing-history |
+|---|---|---|---|---|
+| differences | d1_/d2_ over 13 columns | 2 / 3 | backward differences | NaN for t<1 / t<2 |
+| rolling | rm{w}_/rv{w}_ over 14 columns | 5, 25, 100 | trailing mean/std | NaN until warmup |
+| slopes | rs{w}_ over 5 columns | 25, 100 | trailing OLS | NaN until warmup |
+| EWMA | ewma{span}_ over 5 columns | spans 5, 25 | streaming E[0]=x[0] | runs from t=0 |
+| CUSUM | cusum_pos_/neg_ over 8 columns | ref=100 | μ0/σ0 from FIRST 100 blocks ONLY | NaN until t=100 |
+| KS | ks_ over 5 columns | 50 vs 50 | two trailing windows | NaN until t=99 |
+| autocorr | ac1_ over 3 columns | 100 | trailing lag-1 | NaN until t=99 |
+
+Configuration: `FeatureConfig` (all windows/spans/columns configurable; validated).
+Metadata: `feature_metadata()` — feature_name, source_columns, operation, lookback,
+causal, units, category (machine-readable; exported to
+artifacts/phase2/features/feature_schema.json by `python -m quantumattack.features_cli`).
+
+Verified causality: historical-invariance tests (modify telemetry after t → features
+≤ t unchanged) for every feature class (tests/test_features.py); determinism,
+schema stability, NaN policy, no-inf tests included.
+
+Phase 2 findings that inform later feature selection: group D (all features) best
+AUROC at H=10 (0.839 vs 0.813 base-only); differences help short horizons; temporal
+stats improve calibration (Brier 0.010 vs 0.19 base) but NOT attack-specific lead-time
+attribution (pair-gated = 0%). The final feature set remains deferred to ablation
+across larger datasets.

@@ -177,3 +177,85 @@ the earlier ID.
 - Alternatives considered: fixed 11% QBER threshold (DV-specific; our qber_proxy is a proxy).
 - Consequences: later phases compare forecast warning time vs conventional detection time under one policy.
 - Files: docs/evaluation-protocol.md
+
+---
+
+### D-018: Phase 1 committed before extension (baseline for regression testing)
+
+- Date / phase / commit: 2026-10-08 / Phase 2 / commit 16f8406
+- Context: Phase 2 prompt §2 requires verifying Phase 1 before extending it; Phase 1 work was uncommitted.
+- Decision: Committed all Phase 1 work (52 files) as commit 16f8406 with mandated author identity; Phase 1 regression suite (40 tests) verified passing on the commit.
+- Why: Phase 2 regression tests need a stable baseline; uncommitted work cannot be rolled back against.
+- Alternatives considered: extending without committing — rejected (no rollback point).
+- Consequences: Phase 2+ changes diff against 16f8406.
+- Files: .git (commit 16f8406)
+
+### D-019: Causal feature layer — configurable trailing statistics; explicit-NaN missing-history policy
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §5-§11; Phase 1 feature-spec.md specified candidates without implementation.
+- Decision: src/quantumattack/features.py implements 154 derived features (schema v2): backward d1/d2 differences; trailing rolling mean/std over windows {5, 25, 100} blocks; trailing OLS slopes {25, 100}; EWMA spans {5, 25}; two-sided CUSUM (reference = FIRST 100-block warmup window only); two-sample KS (50 vs 50 trailing windows); trailing lag-1 autocorrelation. ALL statistics trailing (window ends at t); derivatives backward. Missing-history policy: explicit NaN until minimum history — never zeros, never future samples. FeatureConfig dataclass makes every window/span/column configurable. Feature metadata (feature_name, source_columns, operation, lookback, causal, units, category) emitted for audits/explainability.
+- Why: causality is absolute (§4); the warmup NaN policy is causal and documented; configuration-first design (§7).
+- Alternatives considered: start-padding (rejected: would leak scenario start position); partial windows (rejected: biases means); pandas rolling with centered windows (rejected: future leakage).
+- Consequences: features are NaN for the first ~100 blocks of every scenario (min_history_blocks=100 skips them for models); schema version 2 recorded.
+- Files: src/quantumattack/features.py, feature_config.py, features_cli.py, docs/feature-spec.md, artifacts/phase2/features/feature_schema.json
+
+### D-020: Conventional threshold calibration = empirical quantile on benign TRAIN portions only
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §13-§16: real reactive monitoring baseline; thresholds never tuned on test.
+- Decision: Conventional detector (baselines/conventional.py) uses 7 CV-QKD indicators (ε̂, T̂, LO power, det_gain, SKR, saturation, background; qber_proxy EXCLUDED as degenerate per Phase 1) with per-indicator thresholds calibrated on benign TRAIN-portion blocks only. Default method: empirical quantile q=0.995 (normal-σ 5σ and fixed-engineering methods also supported). Warning policy: K=3 consecutive violating blocks + 50-block cooldown, configurable.
+- Why: represents a real reactive monitor without being a strawman; calibration-on-train prevents test-set tuning (§14/§25).
+- Alternatives considered: fixed 11% QBER threshold (DV-specific, degenerate proxy); tuning thresholds for lead time (forbidden §14).
+- Consequences: conventional warning times reproducible; missing warnings reported as null (never zero lead).
+- Files: src/quantumattack/baselines/conventional.py, docs/evaluation-protocol.md
+
+### D-021: Scenario-level splitting with hash-seeded assignment; pairs atomic
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §21-§23: telemetry rows are highly correlated; the independence unit is the scenario.
+- Decision: baselines/splits.py partitions by SCENARIO with matched pairs atomic (pair members always same partition); deterministic hash-seeded assignment (SplitConfig.seed); OOD holdout by attack family to test entirely (architecture ready, not exercised by default). SplitConfig: train 0.6 / val 0.2 / test 0.2.
+- Why: random row splits would leak scenario identity; pair leakage would let the model memorize the environmental trajectory (§21).
+- Alternatives considered: random row split (forbidden); seed-only grouping (insufficient — same-seed scenarios can differ by attack).
+- Consequences: split validated (disjointness) + pair-isolation checked (both tested); 37/18/10 scenario split for seed 0.
+- Files: src/quantumattack/baselines/splits.py, tests/test_baselines.py
+
+### D-022: Logistic baseline = separate per-horizon models; scaler fit on train only
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §17-§27.
+- Decision: baselines/logistic.py trains one LogisticRegression per horizon (H∈{10,25,50,100}, class_weight=balanced, C=1.0) on causal features; StandardScaler statistics fit on TRAIN scenarios only, applied to val/test. y_H(t)=1 iff t < onset ≤ t+H; y_H=0 for t ≥ onset (attack no longer future — §19). Rows with t < 100 (insufficient history) skipped. Four ablation feature groups (A/B/C/D, §38) selectable via ModelConfig.feature_group.
+- Why: deliberately simple first predictive baseline (§17); if it fails, that is evidence — do not hide it with deeper models.
+- Alternatives considered: single multi-horizon model (deferred: separate models are simpler/clearer for Phase 2); fitting scaler on all data (forbidden §24).
+- Consequences: predictions carry full metadata (scenario_id, block, per-horizon p, y_true, split, model/feature schema versions) stored to artifacts/phase2/eval/predictions.parquet (never overwritten).
+- Files: src/quantumattack/baselines/logistic.py
+
+### D-023: Warning policy = threshold + K=3 consecutive + cooldown + grace-period categories
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §29-§35.
+- Decision: Forecast warnings: P(attack within H) ≥ 0.5 for 3 consecutive prediction points → warning at the FIRST block of the satisfied run; 50-block cooldown suppresses re-arming. Timing categories (§32): anticipatory (lead > 5 blocks), immediate (0 ≤ lead ≤ 5), late (lead < 0), none; benign-scenario warnings classified false_early_warning. Policy parameters selected on validation only (default values fixed in Phase 2; not tuned on test).
+- Why: a single probability spike must not count as a warning (§29); 1-block and 500-block warnings are different categories (§32).
+- Alternatives considered: no persistence (rejected: one noisy sample would warn); collapsing benign warnings into negatives (forbidden §35).
+- Consequences: scenario-level false-early-warning rate + per-attack lead-time distributions measured.
+- Files: src/quantumattack/baselines/warnings.py
+
+### D-024: Experiment manifest format; artifacts git-ignored
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §44/§46.
+- Decision: Machine-readable experiment manifest (experiment_id, phase, dataset, feature_schema, feature_group, split, model, warning_policy, threshold_policy, package_version, created_at) written per evaluation to artifacts/phase2/eval/experiment_manifest.json; predictions.parquet + metrics.json alongside. artifacts/ is generated output — added to .gitignore.
+- Why: every result reproducible from (dataset, config, seed); outputs separate from source.
+- Alternatives considered: committing artifacts (rejected: regenerable).
+- Consequences: Phase 2 results reproducible via documented commands only.
+- Files: src/quantumattack/evaluation/harness.py, .gitignore
+
+### D-025: Warning policy selected on validation: thr=0.5, k=3, cooldown=50
+
+- Date / phase / commit: 2026-10-08 / Phase 2
+- Context: Master prompt §29: policy parameters must be selected on validation, never test.
+- Decision: (thr, k) swept on VAL scenarios only: thr=0.5/k=3 keeps 100% pre-onset attack warning with the lowest benign warning rate achievable (0.64 at H=50, 0.79 at H=100); higher thresholds do not reduce benign warnings (benign P is bimodal under OU drift) and lose coverage at thr=0.95. Selected policy: prob_threshold=0.5, persistence_k=3, cooldown_blocks=50, grace_blocks=5. Applied unchanged to TEST.
+- Why: single spikes must not warn (§29); policy tuned only where allowed.
+- Alternatives considered: thr=0.95/k=2 (loses 25–50% attack coverage, same benign rate); no persistence (forbidden).
+- Consequences: test results reported under the same policy; policy per-dataset re-selection on val required when the dataset changes.
+- Files: docs/evaluation-protocol.md §5, src/quantumattack/baselines/warnings.py

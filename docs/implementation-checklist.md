@@ -37,7 +37,48 @@ references (file, command, output) when marking.
 - [x] Research sources read at full-text level (Phase 1 opener) — evidence: docs/research-landscape.md (Phase 1 update)
 - [x] Phase 1 proposal approved by project owner (gate for all implementation work) — evidence: owner-issued Phase 1 master prompt (2026-10-07)
 
-## Phase 1 — Research, threat model, simulation & precursor design (current)
+## Phase 2 — Causal feature layer, forecasting baselines & lead-time evaluation (current)
+
+Order follows the Phase 2 execution steps (§61). Evidence added as items complete.
+
+### Foundation & feature layer
+- [x] Phase 1 regression tests pass — evidence: pytest 40 passed (2026-10-08, commit 16f8406)
+- [x] Phase 1 dataset regeneration verified — evidence: data/phase1 manifest (65 scenarios, schema 1)
+- [x] Environment revalidated (scikit-learn 1.8.0 re-probed before use) — evidence: probe output
+- [ ] Feature implementation mapped to feature spec — evidence: docs/feature-spec.md + features.py
+- [ ] Causal feature layer implemented — evidence: src/quantumattack/features.py
+- [ ] Feature unit tests added — evidence: tests/test_features.py
+- [ ] Feature causality tests added (historical invariance) — evidence: tests/test_features.py
+- [ ] Feature schema versioned — evidence: FEATURE_SCHEMA_VERSION + docs
+
+### Baselines
+- [ ] Threshold baseline implemented — evidence: src/quantumattack/baselines/
+- [ ] Threshold calibration protocol defined (no test-set tuning) — evidence: docs/evaluation-protocol.md
+- [ ] Conventional warning policy defined (persistence, cooldown, configurable) — evidence: baselines + docs
+- [ ] Logistic-regression forecasting baseline implemented — evidence: src/quantumattack/baselines/
+- [ ] Future-horizon labels verified (y_H(t)=0 for t≥onset) — evidence: tests
+- [ ] Train/validation/test split implemented (scenario-level, disjoint) — evidence: baselines/splits + tests
+- [ ] Scenario-level isolation verified — evidence: tests
+- [ ] Matched-pair isolation verified (pairs never cross splits) — evidence: tests
+- [ ] Baseline evaluation harness implemented — evidence: src/quantumattack/evaluation/
+- [ ] AUROC calculated — evidence: metrics output
+- [ ] AUPRC calculated — evidence: metrics output
+- [ ] Calibration measured (Brier + reliability) — evidence: metrics output
+- [ ] False early-warning rate measured (scenario-level) — evidence: metrics output
+- [ ] Lead time measured — evidence: metrics output
+- [ ] Conventional-vs-forecast comparison measured — evidence: metrics output
+- [ ] Gradual attack performance measured — evidence: per-attack results
+- [ ] Sudden attack performance measured — evidence: per-attack results
+- [ ] Benign-drift performance measured (P(warning|drift) vs P(warning|normal)) — evidence: results
+- [ ] Multiple seeds evaluated — evidence: results
+- [ ] Ablation analysis performed (A/B/C/D feature groups) — evidence: ablation output
+- [ ] Results reproducible — evidence: repeat run equality
+- [ ] decisions.md updated — evidence: decisions.md
+- [ ] flow.md updated — evidence: flow.md
+- [ ] handoff.md updated — evidence: handoff.md
+- [ ] Phase 2 report produced — evidence: docs/phase2-final-report.md
+
+## Phase 1 — Research, threat model, simulation & precursor design (complete; committed 16f8406)
 
 Order follows the master prompt's execution steps (§63). Evidence references added as items complete.
 

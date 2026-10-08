@@ -1,5 +1,6 @@
-# Generated outputs (regenerable via configs/simulation/*.yaml)
+# Generated outputs (regenerable via configs/simulation/*.yaml + documented commands)
 data/
+artifacts/
 __pycache__/
 *.pyc
 .pytest_cache/
