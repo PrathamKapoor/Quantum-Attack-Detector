@@ -1,0 +1,67 @@
+# Phase 1 validation batch (docs/dataset-spec.md §7). Small multi-seed dataset
+# to validate behavior — NOT a giant dataset (master prompt §35).
+seeds: [1, 2, 3, 4, 5]
+n_blocks: 2000
+horizons: [10, 25, 50, 100]
+
+scenarios:
+  # --- normal operation ---
+  - name: plain
+    class: normal
+  # --- benign drift (hard negatives) ---
+  - name: channel-drift
+    class: normal
+    attack: null
+    env:
+      fiber_loss_ou_sigma_db: 0.03
+  - name: disturbance
+    class: normal
+    env:
+      disturbance_episode_prob: 0.5
+  # --- attacks (matched counterfactual pairs) ---
+  - name: intercept-resend
+    class: attack
+    pair: true
+    attack:
+      attack_type: intercept_resend
+      onset_block: 1000
+      tap_fraction: 0.3
+      resend_noise_mult: 2.0
+  - name: lo-manipulation
+    class: attack
+    pair: true
+    attack:
+      attack_type: lo_manipulation
+      onset_block: 1200
+      lo_attack_attenuation: 0.5
+      lo_hidden_noise_factor: 0.5
+      ramp_min_blocks: 60
+      ramp_max_blocks: 150
+  - name: calibration-manipulation
+    class: attack
+    pair: true
+    attack:
+      attack_type: calibration_manipulation
+      onset_block: 1200
+      cal_gain_bias: 0.15
+      cal_offset_bias_snu: 0.05
+      cal_ramp_min_blocks: 80
+      cal_ramp_max_blocks: 160
+  - name: channel-jamming-probes
+    class: attack
+    pair: true
+    attack:
+      attack_type: channel_jamming
+      onset_block: 1200
+      jamming_power_snu: 0.5
+      probe_enabled: true
+      probe_lambda: 2.0
+      precursor_lead_blocks: 100
+  - name: channel-jamming-sudden
+    class: attack
+    pair: true
+    attack:
+      attack_type: channel_jamming
+      onset_block: 1200
+      jamming_power_snu: 0.5
+      probe_enabled: false

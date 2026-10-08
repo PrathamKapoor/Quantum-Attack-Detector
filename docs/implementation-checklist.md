@@ -23,7 +23,7 @@ references (file, command, output) when marking.
 [ ] Reproducibility verified
 ```
 
-## Phase 0 — Repository audit (current)
+## Phase 0 — Repository audit (complete)
 
 - [x] Repository inspected: empty (0 entries incl. hidden), not a Git repo before init — evidence: docs/phase0-audit.md §1
 - [x] Dependency audit — evidence: docs/phase0-audit.md §3
@@ -34,18 +34,60 @@ references (file, command, output) when marking.
 - [x] handoff.md created — evidence: this commit
 - [x] docs/research-landscape.md created (snippet-level, UNKNOWN-marked) — evidence: docs/research-landscape.md
 - [x] Git initialized, initial commit with mandated author identity — evidence: `git log --format=full`
-- [ ] Research sources read at full-text level (Phase 1 opener)
-- [ ] Phase 1 proposal approved by project owner (gate for all implementation work)
+- [x] Research sources read at full-text level (Phase 1 opener) — evidence: docs/research-landscape.md (Phase 1 update)
+- [x] Phase 1 proposal approved by project owner (gate for all implementation work) — evidence: owner-issued Phase 1 master prompt (2026-10-07)
 
-## Phase 1 — Research specification
+## Phase 1 — Research, threat model, simulation & precursor design (current)
 
-- [ ] Research landscape completed at full-text level (fill UNKNOWN columns)
-- [ ] Attack taxonomy (CV-QKD-first) with per-attack precursor profile: gradual / sudden / adaptive / stealth, and physical justification
-- [ ] Feature taxonomy with the §12 documentation block per feature
-- [ ] Evaluation methodology: chronological/scenario splits, matched counterfactual runs, metrics (lead time, precision@horizon, AUROC/AUPRC, calibration, false-warning rate, secret-key impact)
-- [ ] Horizon selection method defined (H1..H4 configurable; values derived from simulation timestep + attack durations)
-- [ ] Architecture proposal (benchmark ladder from §16; QML only after classical baselines)
-- [ ] PHASE CHECKLIST (master prompt §39) completed
+Order follows the master prompt's execution steps (§63). Evidence references added as items complete.
+
+### Foundation
+- [x] Repository/docs re-read (decisions.md, flow.md, handoff.md, docs/* complete) — evidence: session log
+- [x] Environment re-validation (versions re-probed; stale Phase 0 records corrected) — evidence: probe output (§ Phase 1 report)
+- [x] qiskit-aer exact version resolved — evidence: `importlib.metadata` probe
+- [x] Research landscape strengthened (full-text sources; VERIFIED/SECONDARY/INFERENCE/UNKNOWN levels) — evidence: docs/research-landscape.md (27 sources, most VERIFIED 2026-10-08)
+- [x] System boundary defined (protected QKD system, components, protocol scope) — evidence: docs/threat-model.md
+- [x] Threat model defined — evidence: docs/threat-model.md (§1–§7)
+- [x] Attack taxonomy defined (per-attack: applicability, subsystem, mechanism, telemetry, precursor, onset, priority) — evidence: docs/attack-taxonomy.md
+- [x] Precursor taxonomy defined (per prioritized attack: A/B/C/D class, math form, distributions, confounders, confidence) — evidence: docs/precursor-taxonomy.md
+- [x] Environmental confounders defined (prioritized subset with drift forms) — evidence: docs/precursor-taxonomy.md §Environmental confounders
+
+### Temporal semantics & data design
+- [x] Telemetry schema defined (per-feature name/type/units/cadence/causality) — evidence: docs/telemetry-spec.md
+- [x] Temporal unit defined (timestep → sampling → window → sequence → horizon chain, with units) — evidence: docs/time-semantics.md
+- [x] Attack onset semantics defined (per attack; NOT "first abnormal telemetry") — evidence: docs/attack-taxonomy.md + docs/time-semantics.md §3
+- [x] Prediction horizon semantics defined (H1..H4 in windows AND seconds) — evidence: docs/time-semantics.md §7
+- [x] Labeling protocol defined (NORMAL/BENIGN_DRIFT/PRECURSOR/ATTACK + y_H binary targets) — evidence: docs/dataset-spec.md + docs/time-semantics.md §5
+- [x] Leakage risks documented (causal rolling stats; feature-at-t ≤ t rule) — evidence: docs/dataset-spec.md §4 + docs/feature-spec.md
+- [x] Matched-counterfactual protocol defined (pair IDs, shared seeds/environment) — evidence: docs/dataset-spec.md §3 + D-015
+
+### Architecture & design docs
+- [x] Simulation architecture designed (modular package layout with rationale) — evidence: docs/architecture-v1.md Part A
+- [x] Graph representation designed (nodes/edges/features/temporal update; design only) — evidence: docs/architecture-v1.md Part B
+- [x] Conventional detection baseline + lead-time definition documented — evidence: docs/evaluation-protocol.md §1–§3
+
+### Implementation
+- [x] Initial simulator implemented (config-first, modular, seeded) — evidence: src/quantumattack/ (15 modules)
+- [x] Normal-operation simulation validated (distributions, invariants, bounds) — evidence: tests/test_reproducibility.py + smoke output in session log
+- [x] Environmental-drift simulation validated (drift without attack) — evidence: tests + benign-drift smoke output (transmittance std 0.0038 across run)
+- [x] Initial attack scenarios implemented (small diverse prioritized subset) — evidence: src/quantumattack/simulator/attacks/ + tests/test_attack_semantics.py
+- [x] Precursor scenarios implemented ONLY where physically defensible — evidence: docs/precursor-taxonomy.md (PROJECT INFERENCE labels) + tests/test_precursor_semantics.py
+- [x] Sudden-onset scenarios included (no injected pre-warning) — evidence: tests/test_precursor_semantics.py (class C tests)
+- [x] Deterministic seeding verified (same seed → same telemetry) — evidence: test_same_seed_same_output (field-exact equality)
+- [x] Telemetry export verified (CLI, schema versioned, traceable) — evidence: data/phase1 manifest (65 scenarios, schema 1)
+
+### Validation & analysis
+- [x] Simulator tests added (config accept/reject, reproducibility, invariants, attack/precursor semantics, labels, metadata isolation, counterfactual) — evidence: 40 passed, 0 failed (pytest output)
+- [x] Statistical sanity checks run (multi-seed; pre-onset movement analysis) — evidence: docs/precursor-analysis.md (5–10 seeds per attack)
+- [x] Precursor usefulness analysis performed (Cat 1–4 classification per feature) — evidence: docs/precursor-analysis.md §Summary
+- [x] Precursor behavior compared against matched benign trajectories — evidence: scripts/analyze_precursors.py (matched-pair effect sizes)
+
+### Documentation & closure
+- [x] docs updated (all new docs + existing docs kept consistent) — evidence: git diff
+- [x] decisions.md updated (D-0NN entries for architectural/data decisions) — evidence: decisions.md D-008..D-017
+- [x] flow.md updated (implemented names, call flow, call tree) — evidence: flow.md §1–§2
+- [x] handoff.md updated (Phase 2-ready state) — evidence: handoff.md
+- [x] Phase 1 completion report produced (status, gate result, evidence) — evidence: final report in session log
 
 ## Phase 2 — Quantum digital twin (CV-QKD)
 
