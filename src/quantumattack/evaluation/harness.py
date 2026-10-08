@@ -133,6 +133,15 @@ def run_evaluation(
         entries = entries + cf_manifest["scenarios"]
 
     # load FEATURE frames if precomputed, else raw (compute features here)
+    # persistent feature cache across harness runs (same telemetry → same features)
+    import joblib
+    CACHE_FILE = out_dir / ".feature_cache.pkl"
+    feature_cache: dict[str, pd.DataFrame] = {}
+    if CACHE_FILE.exists():
+        try:
+            feature_cache = joblib.load(CACHE_FILE)
+        except Exception:
+            feature_cache = {}
     frames: dict[str, pd.DataFrame] = {}
     for s in entries:
         fpath = features_dir / f"{s['scenario_id']}.parquet"
@@ -271,6 +280,12 @@ def run_evaluation(
         "package_version": PACKAGE_VERSION,
         "created_at": str(pd.Timestamp.now()),
     }
+    # persist feature cache (reusable across horizon builds/re-runs)
+    try:
+        import joblib
+        joblib.dump(feature_cache, CACHE_FILE)
+    except Exception:
+        pass
     (out_dir / "experiment_manifest.json").write_text(
         json.dumps(experiment_manifest, indent=2, default=str), encoding="utf-8")
     preds.to_parquet(out_dir / "predictions.parquet", index=False)

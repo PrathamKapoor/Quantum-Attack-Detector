@@ -259,3 +259,35 @@ the earlier ID.
 - Alternatives considered: thr=0.95/k=2 (loses 25–50% attack coverage, same benign rate); no persistence (forbidden).
 - Consequences: test results reported under the same policy; policy per-dataset re-selection on val required when the dataset changes.
 - Files: docs/evaluation-protocol.md §5, src/quantumattack/baselines/warnings.py
+
+---
+
+### D-026: Unpaired dataset design; COUNTERFACTUAL category retained (Phase 3 core change)
+
+- Date / phase / commit: 2026-10-08 / Phase 3 / commit c9cb1a8
+- Context: Phase 2 gate (WEAK SIGNAL): paired-only test population made pre-onset warnings benign-drift alarming by construction. Phase 3 prompt §5-§8.
+- Decision: docs/dataset-spec-phase3.md (PRE-REGISTERED before any Phase 3 test results): 160 independent unpaired scenarios (100 attacks on seeds 100–119, 60 benign on seeds 200–219 — disjoint seed ranges), per-scenario independent sampling of environment/channel/detector/noise AND attack parameters (within Phase 1 taxonomy ranges) AND onset (uniform 900–1400). Phase 2 paired dataset (65 scenarios) RETAINED as the COUNTERFACTUAL diagnostic category (train-only, never the test population). Feature count unchanged (154, schema v2).
+- Why: Metric A (independent early warning) requires attack scenarios without benign twins; Metric B (counterfactual attribution) requires pairs; the two are separate metrics (§17).
+- Alternatives considered: deleting pairs (forbidden); weakening the attribution gate (forbidden §2).
+- Consequences: genuine unpaired evaluation possible; pairs still serve counterfactual diagnostics.
+- Files: docs/dataset-spec-phase3.md, configs/simulation/phase3.yaml, src/quantumattack/simulator/generate.py (unpaired seed pools + per-scenario parameter sampling + name→attack_type mapping + int casting)
+
+### D-027: Pre-registered split + OOD partition (channel_jamming held out)
+
+- Date / phase / commit: 2026-10-08 / Phase 3 (recorded BEFORE evaluation)
+- Context: Phase 3 prompt §4/§11: document the split and held-out attack BEFORE evaluating; not chosen for favorable results.
+- Decision: SplitConfig(seed=42, counterfactual_to_train=True, ood_holdout_family="channel_jamming") fixed before any Phase 3 model run. OOD rationale: channel jamming is the availability-asset attack with a variance/saturation telemetry surface, distinct from the mean-shift gradual attacks dominating training — a real cross-family generalization test; its Phase 2 behavior was weak/unreliable, so the choice is not favorable-result-driven. Unit key fixed: unpaired scenarios split by (definition, seed) — the first implementation grouped by definition base, which put entire attack families in one partition (diagnosed and fixed before any evaluation used it).
+- Why: seed-level splitting keeps the test population mixed (known + OOD families); definition-level grouping would have made the split degenerate.
+- Alternatives considered: intercept_resend as OOD (rejected: its no-precursor behavior makes OOD results uninformative about cross-family generalization).
+- Consequences: verified partition (train 72 / val 24 / test 64; all 40 jamming scenarios in test; 0 in train).
+- Files: docs/dataset-spec-phase3.md, src/quantumattack/baselines/splits.py
+
+### D-028: Sustained-until-onset warning policy (Phase 3 policy fix)
+
+- Date / phase / commit: 2026-10-08 / Phase 3
+- Context: First unpaired run showed 100% "anticipatory" success with median lead 900–1000 blocks for ALL attacks INCLUDING intercept-resend (no pre-onset signal — impossible physics) and FWR(NORMAL)=1.0. Diagnosis: the policy counted the FIRST k=3 run above threshold as the warning — warmup noise (t≈100–300, right after the feature warmup boundary) fired warnings on everything.
+- Decision: WarningPolicy.sustained_until_onset (pre-declarable): a warning counts only when P stays above threshold from the k-run until onset (attack scenarios) or scenario end (benign). Transient spikes (warmup noise, drift blips) are not warnings. Applies uniformly to ALL models; not tuned on test.
+- Why: a warning that fires and then dips is a transient, not a warning (master prompt §29 persistence intent); the inflated lead time was an evaluation artifact, fixed at policy level — NOT by touching the simulator or the attacks (§2).
+- Alternatives considered: warmup-guard (discard warnings before block 200 — similar effect but less principled: the sustain requirement IS the persistence semantics); lowering thresholds (forbidden §2).
+- Consequences: results became scientifically coherent (gradual attacks 67–100% success with median lead 78–127 blocks; FWR NORMAL 0.21, BENIGN_DRIFT 0.0; intercept-resend 0% — correct physics).
+- Files: src/quantumattack/baselines/warnings.py

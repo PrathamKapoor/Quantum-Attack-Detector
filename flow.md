@@ -5,10 +5,12 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
-Phase 2 COMPLETE (2026-10-08): causal feature layer + forecasting baselines +
-lead-time evaluation implemented and verified (63 tests passing; results in
-`artifacts/phase2/`, git-ignored). Sections 1–4 use ACTUAL file/function names from
-`src/quantumattack/`. Deep temporal models, GNN, dashboard remain design-only.
+Phase 3 IN PROGRESS (2026-10-08): unpaired dataset (160 scenarios) + pre-registered
+split/OOD + Metric A/B separation + GRU/TCN temporal models implemented. Logistic
+re-evaluated on the unpaired population (sustained policy: gradual attacks 67–100%
+independent success, median lead 78–127 blocks; FWR NORMAL 0.21, BENIGN_DRIFT 0.0;
+intercept-resend 0% — correct physics). GRU evaluated (86 tests incl. 8 temporal;
+AUROC 0.72–0.84; attributed lead 0.67–0.83). TCN evaluation running.
 
 ## 1. Implemented flow (VERIFIED — Phase 1)
 
@@ -136,6 +138,44 @@ Key Phase 2 findings (evidence: artifacts/phase2/eval/metrics.json + ablation):
 - Ablation: group D (all features) best at H=10 (AUROC 0.839 vs 0.813 base);
   differences help H=10; temporal stats improve calibration (Brier 0.010–0.08 vs
   0.19 base) but not lead-time attribution.
+
+## 3c. Phase 3 flow (IMPLEMENTED — unpaired forecasting + temporal models)
+
+```text
+Scenario generator (simulator/generate.py: unpaired seed pools + per-scenario
+                    parameter sampling + name→attack_type mapping)
+    ↓  INDEPENDENT scenario assignment (seeds 100–119 attacks / 200–219 benign)
+    ↓  splits.split_scenarios(SplitConfig(seed=42, counterfactual_to_train=True,
+    │     ood_holdout_family="channel_jamming"))     WHY: pre-registered (D-027);
+    │                                                pairs atomic; OOD to test
+    ↓  Telemetry (data/phase3; 160 scenarios)
+    ↓  features (features.py, schema v2; artifacts/phase3/features)
+    ↓  Sequence construction (models/sequences.py: build_sequences — L=100,
+    │     ordered, no future telemetry; NaN windows skipped)
+    ↓  Baselines (baselines/logistic.py re-run) | GRU (models/gru.py) | TCN
+    │     (models/tcn.py: causal left-padded dilated convolutions)
+    ↓  Future attack probability P(attack within H) (models/temporal_eval.py)
+    ↓  Warning policy (baselines/warnings.py: WarningPolicy.sustained_until_onset —
+    │     transient spikes are not warnings; D-028)
+    ↓  INDEPENDENT early-warning evaluation (Metric A: metric_a_independent)
+    ↓  COUNTERFACTUAL attribution evaluation (Metric B: metric_b_counterfactual —
+    │     paired runs train-only; warnings attack AND NOT twin = attributable)
+    ↓  Lead-time analysis (median/p25/p75/p90/std/min/max; nulls preserved)
+    ↓  OOD analysis (held-out channel_jamming family)
+    ↓  Model comparison (harness metrics; same input/splits/policy for all models)
+```
+
+Key Phase 3 findings so far (evidence: artifacts/phase3/eval-logistic/metrics.json,
+eval-gru/metrics_gru.json):
+
+- Logistic (unpaired, sustained policy): calibration/lo attacks 67–100% independent
+  success, median lead 78–127 blocks (0.8–1.3 s); jamming (OOD) 3–12%; intercept-
+  resend 0% (correct physics); FWR NORMAL 0.21, BENIGN_DRIFT 0.0.
+- GRU (2,561 params, 10 epochs, batch 128, pos_weight auto=32.2): AUROC 0.724/0.829/
+  0.825/0.836 (H=10/25/50/100); independent success 0.58–0.92, median lead
+  108–137 blocks; ATTRIBUTED (counterfactual, 6-pair test subset) 0.67–0.83.
+- The sustained-until-onset policy fixed the Phase 2/3 artifact (warmup-noise
+  warnings); results are now physically coherent.
 
 ## 4. Downstream flow (DESIGN — not yet implemented)
 
