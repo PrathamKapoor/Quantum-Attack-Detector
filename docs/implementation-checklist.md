@@ -45,38 +45,38 @@ Order follows the Phase 2 execution steps (§61). Evidence added as items comple
 - [x] Phase 1 regression tests pass — evidence: pytest 40 passed (2026-10-08, commit 16f8406)
 - [x] Phase 1 dataset regeneration verified — evidence: data/phase1 manifest (65 scenarios, schema 1)
 - [x] Environment revalidated (scikit-learn 1.8.0 re-probed before use) — evidence: probe output
-- [ ] Feature implementation mapped to feature spec — evidence: docs/feature-spec.md + features.py
-- [ ] Causal feature layer implemented — evidence: src/quantumattack/features.py
-- [ ] Feature unit tests added — evidence: tests/test_features.py
-- [ ] Feature causality tests added (historical invariance) — evidence: tests/test_features.py
-- [ ] Feature schema versioned — evidence: FEATURE_SCHEMA_VERSION + docs
+- [x] Feature implementation mapped to feature spec — evidence: docs/feature-spec.md + features.py
+- [x] Causal feature layer implemented (154 features, schema v2) — evidence: src/quantumattack/features.py
+- [x] Feature unit tests added (tests/test_features.py, 23 tests) — evidence: tests/test_features.py
+- [x] Feature causality tests added (historical invariance, per feature class) — evidence: tests/test_features.py
+- [x] Feature schema versioned (v2; feature_schema.json) — evidence: FEATURE_SCHEMA_VERSION + docs
 
 ### Baselines
-- [ ] Threshold baseline implemented — evidence: src/quantumattack/baselines/
-- [ ] Threshold calibration protocol defined (no test-set tuning) — evidence: docs/evaluation-protocol.md
-- [ ] Conventional warning policy defined (persistence, cooldown, configurable) — evidence: baselines + docs
-- [ ] Logistic-regression forecasting baseline implemented — evidence: src/quantumattack/baselines/
-- [ ] Future-horizon labels verified (y_H(t)=0 for t≥onset) — evidence: tests
-- [ ] Train/validation/test split implemented (scenario-level, disjoint) — evidence: baselines/splits + tests
-- [ ] Scenario-level isolation verified — evidence: tests
-- [ ] Matched-pair isolation verified (pairs never cross splits) — evidence: tests
-- [ ] Baseline evaluation harness implemented — evidence: src/quantumattack/evaluation/
-- [ ] AUROC calculated — evidence: metrics output
-- [ ] AUPRC calculated — evidence: metrics output
-- [ ] Calibration measured (Brier + reliability) — evidence: metrics output
-- [ ] False early-warning rate measured (scenario-level) — evidence: metrics output
-- [ ] Lead time measured — evidence: metrics output
-- [ ] Conventional-vs-forecast comparison measured — evidence: metrics output
-- [ ] Gradual attack performance measured — evidence: per-attack results
-- [ ] Sudden attack performance measured — evidence: per-attack results
-- [ ] Benign-drift performance measured (P(warning|drift) vs P(warning|normal)) — evidence: results
-- [ ] Multiple seeds evaluated — evidence: results
-- [ ] Ablation analysis performed (A/B/C/D feature groups) — evidence: ablation output
-- [ ] Results reproducible — evidence: repeat run equality
-- [ ] decisions.md updated — evidence: decisions.md
-- [ ] flow.md updated — evidence: flow.md
-- [ ] handoff.md updated — evidence: handoff.md
-- [ ] Phase 2 report produced — evidence: docs/phase2-final-report.md
+- [x] Threshold baseline implemented (baselines/conventional.py) — evidence: src/quantumattack/baselines/
+- [x] Threshold calibration protocol defined (empirical quantile on benign train only, D-020) — evidence: docs/evaluation-protocol.md
+- [x] Conventional warning policy defined (k=3 + cooldown, configurable, D-020) — evidence: baselines + docs
+- [x] Logistic-regression forecasting baseline implemented (baselines/logistic.py, D-022) — evidence: src/quantumattack/baselines/
+- [x] Future-horizon labels verified (y_H(t)=0 for t≥onset, tested) — evidence: tests
+- [x] Train/validation/test split implemented (scenario-level, disjoint, D-021) — evidence: baselines/splits + tests
+- [x] Scenario-level isolation verified (disjointness test) — evidence: tests
+- [x] Matched-pair isolation verified (pair-isolation test + violation detection) — evidence: tests
+- [x] Baseline evaluation harness implemented (evaluation/harness.py, D-024) — evidence: src/quantumattack/evaluation/
+- [x] AUROC calculated (0.839-0.944 H=10; 0.638-0.804 H=100 across split seeds) — evidence: metrics output
+- [x] AUPRC calculated (0.013-0.228) — evidence: metrics output
+- [x] Calibration measured (Brier 0.010-0.213; ECE + reliability diagrams) — evidence: metrics output
+- [x] False early-warning rate measured (scenario-level, 0.64-1.0) — evidence: metrics output
+- [x] Lead time measured (raw + pair-gated attributed; attribution = 0% on paired data) — evidence: metrics output
+- [x] Conventional-vs-forecast comparison measured (+77 blocks gain calibration/LO at H=100) — evidence: metrics output
+- [x] Gradual attack performance measured (per-attack results in report) — evidence: per-attack results
+- [x] Sudden attack performance measured (raw warnings unattributed = benign-drift responses) — evidence: per-attack results
+- [x] Benign-drift performance measured (P(warning|drift) vs P(warning|normal), bimodal P) — evidence: results
+- [x] Multiple seeds evaluated (split seeds 0-3; artifacts/phase2/multiseed-summary.json) — evidence: results
+- [x] Ablation analysis performed (A/B/C/D; calibration improves, attribution unchanged) — evidence: ablation output
+- [x] Results reproducible (identical re-run -> metrics.json identical) — evidence: repeat run equality
+- [x] decisions.md updated (D-018..D-025) — evidence: decisions.md
+- [x] flow.md updated (Phase 2 evaluation flow, actual names) — evidence: flow.md
+- [x] handoff.md updated (Phase 3-ready, WEAK SIGNAL state) — evidence: handoff.md
+- [x] Phase 2 report produced (docs/phase2-final-report.md, WEAK SIGNAL) — evidence: docs/phase2-final-report.md
 
 ## Phase 1 — Research, threat model, simulation & precursor design (complete; committed 16f8406)
 
