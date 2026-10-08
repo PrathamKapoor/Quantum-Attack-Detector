@@ -55,9 +55,19 @@ def train_temporal_model(
     n_neg = float(len(y_train) - n_pos)
     pos_weight = cfg.pos_weight if cfg.pos_weight is not None else (n_neg / max(n_pos, 1.0))
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32))
-    optimizer = torch.optim.Adam(
-        [p for m in ([model.net] if hasattr(model, "net") else model.blocks) for p in m.parameters()]
-        + list(model.head.parameters()), lr=cfg.lr)
+
+    def _params():
+        if hasattr(model, "net"):  # GRU
+            return list(model.net.parameters()) + list(model.head.parameters())
+        params = []  # TCN: blocks have conv/proj
+        for b in model.blocks:
+            params += list(b.conv.parameters())
+            if b.proj is not None:
+                params += list(b.proj.parameters())
+        params += list(model.head.parameters())
+        return params
+
+    optimizer = torch.optim.Adam(_params(), lr=cfg.lr)
 
     xt = torch.tensor(X_train)
     yt = torch.tensor(y_train)
@@ -69,7 +79,11 @@ def train_temporal_model(
     patience_left = cfg.early_stopping_patience
     rng = np.random.default_rng(cfg.seed)
     for epoch in range(cfg.max_epochs):
-        model.net.train() if hasattr(model, "net") else None
+        if hasattr(model, "net"):
+            model.net.train()
+        else:
+            for b in model.blocks:
+                b.drop.train()
         # batch shuffle (batch ordering only — leaks nothing, §29)
         perm = rng.permutation(len(xt))
         for i in range(0, len(xt), cfg.batch_size):
@@ -80,7 +94,11 @@ def train_temporal_model(
             loss.backward()
             optimizer.step()
         # validation-only early stopping (§34)
-        model.net.eval() if hasattr(model, "net") else None
+        if hasattr(model, "net"):
+            model.net.eval()
+        else:
+            for b in model.blocks:
+                b.drop.eval()
         with torch.no_grad():
             val_loss = float(criterion(_forward(model, xv), yv))
         if val_loss < best_val:
@@ -167,7 +185,11 @@ def predict_temporal(
         frames, scenario_ids, horizon, _mc_from(cfg), feature_columns,
         seq_length=cfg.seq_length)
     probs = []
-    model.net.eval() if hasattr(model, "net") else None
+    if hasattr(model, "net"):
+        model.net.eval()
+    else:
+        for b in model.blocks:
+            b.drop.eval()
     with torch.no_grad():
         for i in range(0, len(X), 512):
             logits = _forward(model, torch.tensor(X[i:i + 512]))

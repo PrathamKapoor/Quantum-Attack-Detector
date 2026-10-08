@@ -86,10 +86,11 @@ def split_scenarios(
     def unit_key(s: dict) -> str:
         if s.get("pair_id"):
             return f"pair:{s['pair_id']}"
-        # unpaired: group by attack/drift definition + seed bucket later; here the
-        # scenario_id base (before -s<seed>) identifies the definition
-        base = s["scenario_id"].rsplit("-s", 1)[0]
-        return f"unit:{base}"
+        # unpaired: each (definition, seed) is its OWN unit — seed-level splitting
+        # within each definition (splitting at definition level would put all 20
+        # seeds of one attack type in the same partition, leaving the test population
+        # OOD-only); paired runs stay atomic (both arms same partition)
+        return f"unit:{s['scenario_id']}"
 
     units: dict[str, list[dict]] = {}
     for s in scenario_entries:

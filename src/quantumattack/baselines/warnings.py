@@ -23,6 +23,10 @@ class WarningPolicy:
     persistence_k: int = 3          # K consecutive prediction points above threshold
     cooldown_blocks: int = 50       # suppress re-arming after a warning fires
     grace_blocks: int = 5           # warnings within <grace of onset are "immediate detection"
+    # Phase 3 (pre-declarable): warning must SUSTAIN above threshold until onset —
+    # transient spikes (warmup noise, drift blips) are not warnings. Uniform for all
+    # models; selected on validation only.
+    sustained_until_onset: bool = False
 
     def validate(self) -> None:
         if not (0.0 < self.prob_threshold < 1.0):
@@ -40,11 +44,18 @@ def warning_blocks_for_scenario(
     df_scenario: pd.DataFrame,
     horizon: int,
     policy: WarningPolicy,
+    sustained_until_onset: bool = False,
 ) -> list[int]:
     """Apply the warning policy to one scenario's probability series.
 
     Returns block indices where the warning FIRES (first block of each
     K-consecutive run above threshold, after cooldown).
+
+    sustained_until_onset (Phase 3 policy fix, pre-declarable): if True, a warning
+    counts only when the probability STAYS above threshold from the end of the
+    k-run until the attack onset (or scenario end for benign runs) — transient
+    spikes (warmup noise, drift blips) are not warnings. Applies uniformly to ALL
+    models and benign scenarios; not tuned on test.
     """
     policy.validate()
     col = f"p_attack_future_h{horizon}"
@@ -53,6 +64,7 @@ def warning_blocks_for_scenario(
     p = df_scenario[col].to_numpy(dtype=float)
     t_idx = df_scenario["block_index"].to_numpy()
     above = p >= policy.prob_threshold
+    onset = int(df_scenario["attack_onset"].iloc[0]) if "attack_onset" in df_scenario.columns else -1
     fires: list[int] = []
     cooldown_until = -1e9
     run = 0
@@ -62,11 +74,24 @@ def warning_blocks_for_scenario(
         else:
             run = 0
         if run >= policy.persistence_k and t_idx[i] > cooldown_until:
-            # warning fires at the FIRST block of the satisfied run
             first_of_run = t_idx[i - policy.persistence_k + 1]
-            fires.append(int(first_of_run))
-            cooldown_until = t_idx[i] + policy.cooldown_blocks
-            run = 0
+            if sustained_until_onset:
+                # sustained: p must stay above threshold from i until onset (attack
+                # already begun → sustain to scenario end) or end for benign runs
+                if onset >= 0:
+                    onset_pos = int(np.searchsorted(t_idx, onset))
+                    end_idx = min(len(p), onset_pos + 1)
+                else:
+                    end_idx = len(p)
+                if bool(above[i:end_idx].all()):
+                    fires.append(int(first_of_run))
+                    cooldown_until = t_idx[i] + policy.cooldown_blocks
+                    run = 0
+                # else: transient — not a warning; run keeps accumulating
+            else:
+                fires.append(int(first_of_run))
+                cooldown_until = t_idx[i] + policy.cooldown_blocks
+                run = 0
     return fires
 
 
@@ -128,9 +153,11 @@ def evaluate_scenario_warnings(
     df_scenario: pd.DataFrame,
     horizon: int,
     policy: WarningPolicy,
+    sustained_until_onset: bool = False,
 ) -> ScenarioWarningResult:
     """Full per-scenario warning evaluation for one horizon."""
-    fires = warning_blocks_for_scenario(df_scenario, horizon, policy)
+    fires = warning_blocks_for_scenario(
+        df_scenario, horizon, policy, policy.sustained_until_onset)
     onset = int(df_scenario["attack_onset"].iloc[0])
     attack_type = str(df_scenario["attack_type"].iloc[0])
     scenario_class = str(df_scenario["scenario_class"].iloc[0])
