@@ -82,28 +82,40 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
                 "channel-jamming-probes": "channel_jamming",
                 "channel-jamming-sudden": "channel_jamming",
             }
-            attack_dict = {"attack_type": name_to_type[spec["name"]]}
-            if spec["name"] == "channel-jamming-sudden":
+            if spec["name"] in name_to_type:
+                attack_dict = {"attack_type": name_to_type[spec["name"]]}
+            else:
+                for prefix, atype in [
+                    ("lo-manipulation", "lo_manipulation"),
+                    ("calibration-manipulation", "calibration_manipulation"),
+                    ("intercept-resend", "intercept_resend"),
+                    ("channel-jamming", "channel_jamming"),
+                ]:
+                    if spec["name"].startswith(prefix):
+                        attack_dict = {"attack_type": atype}
+                        break
+                else:
+                    attack_dict = {"attack_type": "none"}
+            if "channel-jamming-sudden" in spec["name"] or spec.get("probe_enabled") is False:
                 attack_dict["probe_enabled"] = False
-            if spec["name"] == "channel-jamming-probes":
+            if "channel-jamming-probes" in spec["name"] or spec.get("probe_enabled") is True:
                 attack_dict["probe_enabled"] = True
         sample_spec = spec.get("sample") or {}
         onset_range = spec.get("sample_onset")
 
-        # seed pool for this spec: paired/simple mode uses `seeds`; unpaired mode
-        # uses attack_seeds for attack scenarios, benign_seeds for benign; Phase 4
-        # mode uses per-partition pools (train/val/test/ood) — the partition each
-        # seed belongs to is FIXED BY POOL (never hash-assigned).
-        partition = ""
-        if seeds is not None:
+        # seed pool for this spec:
+        # 1. spec-level seeds (Phase 5 / explicit override)
+        # 2. paired/simple mode uses `seeds`
+        # 3. Phase 4 mode uses per-partition pools (train/val/test/ood)
+        # 4. Phase 3 mode uses attack_seeds / benign_seeds
+        partition = spec.get("partition", "")
+        if "seeds" in spec:
+            pool = spec["seeds"]
+            partition = spec.get("partition", "test")
+        elif seeds is not None:
             pool = seeds
         elif "train_seeds" in batch:
-            # Phase 4: per-partition pools, DEFINITION-SLICED (pre-registered
-            # docs/phase4-protocol.md §2): definition i of 8 takes a deterministic
-            # non-overlapping slice of EACH partition pool (train 20/def, val 7/def,
-            # test 7/def, ood 15/def) — no seed reuse across definitions. Slice
-            # index = definition order in the batch spec (stable across runs).
-            # OOD pool holds ONLY channel_jamming (the last two definitions).
+            # Phase 4: per-partition pools, DEFINITION-SLICED
             is_ood_spec = spec["name"].startswith("channel-jamming")
             def_idx = next((i for i, s in enumerate(batch["scenarios"])
                             if s.get("name") == spec["name"]), 0)
@@ -115,8 +127,6 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
                 pool = batch["ood_seeds"][o_idx * ood_slice:(o_idx + 1) * ood_slice]
                 partition = "ood"
             else:
-                # slice divisor = number of NON-OOD definitions (jamming defs draw
-                # from the OOD pool only — 0 train/val/test scenarios per §3)
                 non_ood_defs = [s for s in batch["scenarios"]
                                 if not s.get("name", "").startswith("channel-jamming")]
                 n_defs = len(non_ood_defs)
@@ -149,10 +159,11 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
             env = _env_from_dict(spec.get("env"))
             env_kwargs = {"environment": env} if env is not None else {}
             spec_partition = partition
-            # Phase 4 partition resolution: the partition of a scenario is FIXED
-            # by which pool its seed came from (seed ranges are disjoint):
-            #   [1000, 5000)  → train   [5000, 9000)  → val
-            #   [9000, 13000) → test    [13000, ∞)   → ood
+            # Partition resolution by seed ranges:
+            #   [1000, 5000)   → train   [5000, 9000)   → val
+            #   [9000, 13000)  → test    [13000, 20000) → ood
+            #   [20000, 25000) → g1      [25000, 30000) → g2
+            #   [30000, 35000) → g3      [35000, ∞)     → g4
             if partition == "pool":
                 if seed < 5000:
                     spec_partition = "train"
@@ -160,8 +171,16 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
                     spec_partition = "val"
                 elif seed < 13000:
                     spec_partition = "test"
-                else:
+                elif seed < 20000:
                     spec_partition = "ood"
+                elif seed < 25000:
+                    spec_partition = "g1"
+                elif seed < 30000:
+                    spec_partition = "g2"
+                elif seed < 35000:
+                    spec_partition = "g3"
+                else:
+                    spec_partition = "g4"
             if make_pair:
                 pair_id = f"pair-{len(configs) // 2 + 1:03d}-{spec.get('name', kind)}"
                 arm = "attack"

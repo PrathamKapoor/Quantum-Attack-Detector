@@ -1,0 +1,376 @@
+shared:
+  n_blocks: 2000
+  horizons:
+  - 10
+  - 25
+  - 50
+  - 100
+  dataset_version: phase5-v1
+scenarios:
+- name: plain
+  class: normal
+  seeds:
+  - 20000
+  - 20007
+  - 20014
+  - 20021
+  - 20028
+  - 20035
+  - 20042
+  - 20049
+  - 20056
+  - 20063
+  partition: g1
+- name: channel-drift
+  class: normal
+  seeds:
+  - 20070
+  - 20077
+  - 20084
+  - 20091
+  - 20098
+  - 20105
+  - 20112
+  - 20119
+  - 20126
+  - 20133
+  partition: g1
+  env:
+    fiber_loss_ou_sigma_db: 0.03
+- name: disturbance
+  class: normal
+  seeds:
+  - 20140
+  - 20147
+  - 20154
+  - 20161
+  - 20168
+  - 20175
+  - 20182
+  - 20189
+  - 20196
+  - 20203
+  partition: g1
+  env:
+    disturbance_episode_prob: 0.5
+- name: intercept-resend
+  class: attack
+  seeds:
+  - 20210
+  - 20217
+  - 20224
+  - 20231
+  - 20238
+  - 20245
+  - 20252
+  - 20259
+  - 20266
+  - 20273
+  partition: g1
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    tap_fraction:
+    - 0.2
+    - 0.5
+    resend_noise_mult:
+    - 1.5
+    - 2.5
+- name: lo-manipulation
+  class: attack
+  seeds:
+  - 20280
+  - 20287
+  - 20294
+  - 20301
+  - 20308
+  - 20315
+  - 20322
+  - 20329
+  - 20336
+  - 20343
+  partition: g1
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    lo_attack_attenuation:
+    - 0.3
+    - 0.7
+    lo_hidden_noise_factor:
+    - 0.3
+    - 0.7
+    ramp_min_blocks:
+    - 40
+    - 100
+    ramp_max_blocks:
+    - 100
+    - 160
+- name: calibration-manipulation
+  class: attack
+  seeds:
+  - 20350
+  - 20357
+  - 20364
+  - 20371
+  - 20378
+  - 20385
+  - 20392
+  - 20399
+  - 20406
+  - 20413
+  partition: g1
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    cal_gain_bias:
+    - 0.05
+    - 0.25
+    cal_offset_bias_snu:
+    - 0.02
+    - 0.08
+    cal_ramp_min_blocks:
+    - 50
+    - 120
+    cal_ramp_max_blocks:
+    - 120
+    - 180
+- name: lo-manipulation-fast-ramp
+  class: attack
+  seeds:
+  - 25000
+  - 25007
+  - 25014
+  - 25021
+  - 25028
+  - 25035
+  - 25042
+  partition: g2
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    lo_attack_attenuation:
+    - 0.4
+    - 0.8
+    ramp_min_blocks:
+    - 20
+    - 30
+    ramp_max_blocks:
+    - 30
+    - 40
+- name: lo-manipulation-slow-ramp
+  class: attack
+  seeds:
+  - 25049
+  - 25056
+  - 25063
+  - 25070
+  - 25077
+  - 25084
+  - 25091
+  partition: g2
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    lo_attack_attenuation:
+    - 0.3
+    - 0.6
+    ramp_min_blocks:
+    - 160
+    - 200
+    ramp_max_blocks:
+    - 200
+    - 260
+- name: calibration-manipulation-steep
+  class: attack
+  seeds:
+  - 25098
+  - 25105
+  - 25112
+  - 25119
+  - 25126
+  - 25133
+  - 25140
+  partition: g2
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    cal_gain_bias:
+    - 0.25
+    - 0.45
+    cal_ramp_min_blocks:
+    - 30
+    - 60
+    cal_ramp_max_blocks:
+    - 60
+    - 100
+- name: calibration-manipulation-slow
+  class: attack
+  seeds:
+  - 25147
+  - 25154
+  - 25161
+  - 25168
+  - 25175
+  - 25182
+  - 25189
+  partition: g2
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    cal_gain_bias:
+    - 0.08
+    - 0.2
+    cal_ramp_min_blocks:
+    - 180
+    - 220
+    cal_ramp_max_blocks:
+    - 220
+    - 280
+- name: intercept-resend-varied
+  class: attack
+  seeds:
+  - 25196
+  - 25203
+  - 25210
+  - 25217
+  - 25224
+  - 25231
+  - 25238
+  - 25245
+  - 25252
+  - 25259
+  - 25266
+  - 25273
+  partition: g2
+  sample_onset:
+  - 600
+  - 1600
+  sample:
+    tap_fraction:
+    - 0.1
+    - 0.8
+    resend_noise_mult:
+    - 1.2
+    - 3.0
+- name: normal-extreme-drift
+  class: normal
+  seeds:
+  - 30000
+  - 30007
+  - 30014
+  - 30021
+  - 30028
+  - 30035
+  - 30042
+  - 30049
+  - 30056
+  - 30063
+  partition: g3
+  env:
+    fiber_loss_ou_sigma_db: 0.06
+    ou_theta: 0.03
+- name: normal-intense-disturbance
+  class: normal
+  seeds:
+  - 30070
+  - 30077
+  - 30084
+  - 30091
+  - 30098
+  - 30105
+  - 30112
+  - 30119
+  - 30126
+  - 30133
+  partition: g3
+  env:
+    disturbance_episode_prob: 0.8
+    disturbance_duration_blocks: 40
+    disturbance_background_sigma_mult: 16.0
+- name: normal-thermal-stress
+  class: normal
+  seeds:
+  - 30140
+  - 30147
+  - 30154
+  - 30161
+  - 30168
+  - 30175
+  - 30182
+  - 30189
+  - 30196
+  - 30203
+  partition: g3
+  env:
+    temperature_amplitude_c: 2.5
+    lo_thermal_coupling: 0.025
+    temperature_ou_sigma: 0.1
+- name: channel-jamming-dense-probes
+  class: attack
+  seeds:
+  - 35000
+  - 35007
+  - 35014
+  - 35021
+  - 35028
+  - 35035
+  - 35042
+  - 35049
+  - 35056
+  - 35063
+  - 35070
+  - 35077
+  - 35084
+  - 35091
+  - 35098
+  partition: g4
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    jamming_power_snu:
+    - 0.4
+    - 0.9
+    probe_enabled:
+    - true
+    probe_lambda:
+    - 4.0
+    - 7.0
+    precursor_lead_blocks:
+    - 120
+    - 180
+- name: channel-jamming-sudden-high
+  class: attack
+  seeds:
+  - 35105
+  - 35112
+  - 35119
+  - 35126
+  - 35133
+  - 35140
+  - 35147
+  - 35154
+  - 35161
+  - 35168
+  - 35175
+  - 35182
+  - 35189
+  - 35196
+  - 35203
+  partition: g4
+  sample_onset:
+  - 900
+  - 1400
+  sample:
+    jamming_power_snu:
+    - 0.6
+    - 1.2
+    probe_enabled:
+    - false

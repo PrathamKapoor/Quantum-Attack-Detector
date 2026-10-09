@@ -37,7 +37,31 @@ references (file, command, output) when marking.
 - [x] Research sources read at full-text level (Phase 1 opener) — evidence: docs/research-landscape.md (Phase 1 update)
 - [x] Phase 1 proposal approved by project owner (gate for all implementation work) — evidence: owner-issued Phase 1 master prompt (2026-10-07)
 
-## Phase 4 — Large-scale robustness, statistical validation & graph-model decision (current)
+## Phase 5 — Independent generalization, simulator validity & forecasting robustness (complete)
+
+Order follows the Phase 5 execution steps. Evidence added as items completed:
+
+- [x] Phase 4 regression suite passes — evidence: pytest 109 passed (2026-10-09)
+- [x] Phase 5 protocol pre-registered — evidence: docs/phase5-protocol.md v1
+- [x] Disjoint seed pools established — evidence: configs/simulation/phase5.yaml (G1: 20000..20413; G2: 25000..25273; G3: 30000..30203; G4: 35000..35203)
+- [x] 160 generalization scenarios generated — evidence: data/phase5/ (160 parquet files + manifest.json)
+- [x] Dataset manifest and isolation validated — evidence: tests/test_phase5_dataset.py (4 tests passed)
+- [x] Feature extraction executed (schema v2, 189 cols) — evidence: artifacts/phase5/features/ (160 parquet files)
+- [x] Partition G1 (Scenario Generalization) evaluated — evidence: artifacts/phase5/evaluation/phase5_generalization_report.json (H=100 AUROC 0.901, LO 90%, Cal 90%, IR 0%, Drift FWR 0.0%)
+- [x] Partition G2 (Parameter Extrapolation) evaluated — evidence: phase5_generalization_report.json (AUROC 0.863, LO 71.4%, Cal 85.7%, IR 0%, FWR 0.0%)
+- [x] Partition G3 (Environmental Stress) evaluated — evidence: phase5_generalization_report.json (30 extreme drift/thermal scenarios, FWR 0.00%)
+- [x] Partition G4 (Attack Stress / Hybrid) evaluated — evidence: phase5_generalization_report.json (Jamming dense probes 100%, sudden 26.7%)
+- [x] Controlled stress tests (Tests A–I) executed — evidence: scripts/stress_tests_phase5.py, artifacts/phase5/stress_tests/stress_tests_summary.json
+- [x] Noise sensitivity cliff documented (Test A) — evidence: docs/phase5-robustness-report.md
+- [x] Precursor duration shifts evaluated (Tests C & D) — evidence: docs/phase5-robustness-report.md
+- [x] Simulator validity audit completed (G5) — evidence: docs/simulator-validity-audit.md
+- [x] Digital twin status declared (SYNTHETIC ONLY) — evidence: docs/simulator-validity-audit.md §1
+- [x] Graph model decision gate re-evaluated (HOLD) — evidence: decisions.md D-038
+- [x] Scientific gate declared (ATTACK-SPECIFIC ROBUST GENERALIZATION) — evidence: docs/phase5-final-report.md
+- [x] Regression suite updated and passing — evidence: pytest 113 passed (tests/test_phase5_dataset.py included)
+- [x] Project documentation updated — evidence: decisions.md (D-034..D-038), flow.md, docs/phase5-robustness-report.md, docs/simulator-validity-audit.md, docs/phase5-final-report.md, handoff.md
+
+## Phase 4 — Large-scale robustness, statistical validation & graph-model decision (complete; commit bfcfcaf)
 
 Order follows the Phase 4 execution steps (§50). Evidence added as items complete.
 

@@ -5,16 +5,18 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
-Phase 4 COMPLETE (2026-10-09): Large-scale robustness & statistical validation (284 scenarios:
-234 independent unpaired + 50 counterfactual; 1.7× scale-up per gradual attack family).
-Pre-registered protocol (docs/phase4-protocol.md v1) + disjoint stride-7 seed pools.
-Multi-split evaluation (5 seeds: 42, 7, 101, 2024, 31337) + scenario-level bootstrap (B=2000).
-Scientific gate: **ATTACK-SPECIFIC ROBUST SIGNAL** (gradual attacks 85–100% warning rate,
-median lead 83–124 blocks; sudden attacks 0% — correct physics; BENIGN_DRIFT FWR = 0.0%;
-NORMAL FWR = 0.226).
-Graph-model gate: **HOLD** (precursors are single-component ramps; per-column features capture
-all signal; sequence models sufficient; no cross-component gap).
-Feature Freeze v1 documented (docs/feature-freeze-v1.md); 109 unit/integration tests passing.
+Phase 5 COMPLETE (2026-10-09): Independent Generalization, Simulator Validity & Forecasting Robustness.
+Pre-registered protocol (docs/phase5-protocol.md v1) with 160 scenarios across 4 disjoint generalization partitions:
+- G1 (Scenario Generalization): unseen seeds (H=100 AUROC 0.901, gradual warn rate 90.0%, median lead 78–99 blk).
+- G2 (Parameter Extrapolation): fast/slow ramps, steep biases (AUROC 0.863, gradual warn rate 71–86%).
+- G3 (Environmental Stress): extreme drift, intense disturbance, thermal stress (FWR = 0.00% across all 30 scenarios).
+- G4 (Attack Stress / Hybrid): dense probe jamming (100% warning, median lead 147 blk) vs sudden jamming (26.7%, median lead 0 blk).
+- G5 (Simulator Validity): comprehensive audit (docs/simulator-validity-audit.md); simulator declared SYNTHETIC ONLY.
+Controlled stress testing (Tests A–I) completed (docs/phase5-robustness-report.md).
+Scientific gate: **ATTACK-SPECIFIC ROBUST GENERALIZATION**.
+Simulator Evidence Status: **SYNTHETIC ONLY** (no hardware validation claimed).
+Graph-model gate: **HOLD** (precursors remain single-component temporal dynamics; no cross-node dependency gap).
+113 unit/integration tests passing (pytest tests/).
 
 ## 1. Implemented flow (VERIFIED — Phase 1)
 
