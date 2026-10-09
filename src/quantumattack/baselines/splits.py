@@ -96,11 +96,14 @@ def split_scenarios(
     for s in scenario_entries:
         units.setdefault(unit_key(s), []).append(s)
 
-    # OOD holdout: entire attack family to test
+    # OOD holdout: entire attack family to test — EXCLUDING paired COUNTERFACTUAL
+    # units (pre-registered Phase 4 protocol §3: pairs are a train-only diagnostic
+    # category; Phase 1 jamming pairs are NOT OOD test scenarios; cf rule wins)
     ood_units: set[str] = set()
     if cfg.ood_holdout_family:
         for key, members in units.items():
-            if any(m.get("attack_type") == cfg.ood_holdout_family for m in members):
+            if any(m.get("attack_type") == cfg.ood_holdout_family for m in members) \
+                    and not any(m.get("pair_id") for m in members):
                 ood_units.add(key)
 
     # COUNTERFACTUAL category: matched pairs to TRAIN only (pre-registered §8)

@@ -111,16 +111,18 @@ temporal edges carry lag-1 structure.
 - temporal relationships enter as edge features (correlations) and via the sequence
   model over node histories (temporal GNN later).
 
-### Explicit stance (master prompt §44)
+### Explicit stance (master prompt §44) & Phase 4 Gate Outcome
 
 Do NOT assume GNN > sequence model. The benchmark ladder (threshold detector →
 logistic regression → random forest → xgboost → MLP → GRU/LSTM → TCN → lightweight
 transformer → GNN → temporal GNN → temporal GNN + next-state prediction → + OOD →
-optional QML augmentation) is DOCUMENTED here, to be executed in later phases —
-not in Phase 1. The graph model earns its complexity only if it improves AUPRC,
-calibration, unknown-attack detection, false-warning rate, or lead time over
-sequence-only models.
+optional QML augmentation) was systematically evaluated through Phase 4.
 
-QML (qiskit 2.5.1 + aer 0.17.2 installed) is NOT the default winner: QML belongs to
-a later controlled experiment comparing quantum kernels/VQC against strong classical
-baselines on the compact learned representation (master prompt §45).
+**Phase 4 Graph Decision Gate Outcome: HOLD** (D-032, `docs/graph-hypothesis.md`).
+- Precursors in the CV-QKD digital twin are single-component ramp drifts (LO power ramp, calibration gain ramp, probe pulse train); their telemetry manifestations are column-wise mean shifts.
+- The 154-feature causal layer already captures all available temporal drift signal (H=100 AUROC 0.847, 85-100% warning rate on gradual attacks).
+- The physical graph is a shallow chain (source -> channel -> receiver -> detector) whose message passing represents a fixed linear combination of features already accessible to linear and recurrent models.
+- Deep sequence models (GRU/TCN) showed no attributable lead-time advantage over logistic regression (GRU H=10 AUROC 0.625 on test vs logistic 0.792).
+- GNN implementation is held until a multi-component simulator extension demonstrates genuine cross-component precursor interactions.
+
+QML (qiskit 2.5.1 + aer 0.17.2 installed) remains out of scope for early warning. Telemetry features are frozen under `docs/feature-freeze-v1.md` with explicit PREDICTED vs CONFIRMED architectural outputs.

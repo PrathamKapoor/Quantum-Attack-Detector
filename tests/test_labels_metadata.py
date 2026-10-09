@@ -124,6 +124,30 @@ def test_drift_episode_labels_are_ground_truth():
     assert "PRECURSOR" not in set(labels)
 
 
+def test_drift_episode_window_matches_actual_event():
+    """Regression (Phase 4 label-window bug): BENIGN_DRIFT labels must land on the
+    ACTUAL episode block window (where the episode elevated the telemetry), not a
+    tail-anchored approximation. With prob=1.0 the episode fires at block 1; the
+    labeled window must be the episode's recorded start/end blocks."""
+    from quantumattack.simulator.config import EnvironmentConfig
+
+    cfg = ScenarioConfig(
+        scenario_id="lbl4b", seed=52, n_blocks=200,
+        environment=EnvironmentConfig(disturbance_episode_prob=1.0,
+                                      disturbance_duration_blocks=30),
+    )
+    res = run_scenario(cfg)
+    labels = res.labels["state_label"]
+    drift_rows = [i for i, l in enumerate(labels) if l == "BENIGN_DRIFT"]
+    # with prob=1.0 the episode fires on the first block (draw < 1.0 always true)
+    assert drift_rows[0] == 1, f"episode window start wrong: {drift_rows[0]}"
+    assert len(drift_rows) == 30
+    # end of window == start + duration - 1 (contiguous event)
+    assert drift_rows[-1] == drift_rows[0] + 29
+    # the label window must NOT be the run tail (the old bug put it at 170..199)
+    assert drift_rows[-1] != 199
+
+
 def test_counterfactual_pair_shares_baseline():
     """Matched pair (master prompt §18): same seed/initial conditions/benign
     trajectory; ONLY the attack differs. Benign randomness streams are

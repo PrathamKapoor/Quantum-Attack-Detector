@@ -47,6 +47,9 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
     Batch spec keys:
       seeds: list[int]                      (simple expansion, Phase 1/2 style)
       attack_seeds / benign_seeds: list[int] (unpaired expansion, Phase 3 style)
+      train_seeds / val_seeds / test_seeds / ood_seeds: list[int]
+                                            (Phase 4 style: partition-assigned pools;
+                                             partition recorded per scenario entry)
       n_blocks: int
       horizons: list[int]
       scenarios: list of {class, name, attack: {...}, pair: bool,
@@ -56,9 +59,11 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
     if "seeds" in batch:
         seeds = batch["seeds"]
     else:
-        seeds = None  # unpaired mode: attack/benign seed lists per class
+        seeds = None  # unpaired mode: attack/benign/partition seed lists per class
     n_blocks = batch.get("n_blocks", 2000)
     horizons = tuple(batch.get("horizons", [10, 25, 50, 100]))
+    dataset_version = batch.get("shared", {}).get("dataset_version") if isinstance(
+        batch.get("shared"), dict) else None
     configs: list[ScenarioConfig] = []
 
     import numpy as np
@@ -86,9 +91,42 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
         onset_range = spec.get("sample_onset")
 
         # seed pool for this spec: paired/simple mode uses `seeds`; unpaired mode
-        # uses attack_seeds for attack scenarios, benign_seeds for benign
+        # uses attack_seeds for attack scenarios, benign_seeds for benign; Phase 4
+        # mode uses per-partition pools (train/val/test/ood) — the partition each
+        # seed belongs to is FIXED BY POOL (never hash-assigned).
+        partition = ""
         if seeds is not None:
             pool = seeds
+        elif "train_seeds" in batch:
+            # Phase 4: per-partition pools, DEFINITION-SLICED (pre-registered
+            # docs/phase4-protocol.md §2): definition i of 8 takes a deterministic
+            # non-overlapping slice of EACH partition pool (train 20/def, val 7/def,
+            # test 7/def, ood 15/def) — no seed reuse across definitions. Slice
+            # index = definition order in the batch spec (stable across runs).
+            # OOD pool holds ONLY channel_jamming (the last two definitions).
+            is_ood_spec = spec["name"].startswith("channel-jamming")
+            def_idx = next((i for i, s in enumerate(batch["scenarios"])
+                            if s.get("name") == spec["name"]), 0)
+            if kind == "attack" and is_ood_spec:
+                jam_names = [s.get("name") for s in batch["scenarios"]
+                             if s.get("name", "").startswith("channel-jamming")]
+                o_idx = jam_names.index(spec["name"])
+                ood_slice = len(batch["ood_seeds"]) // len(jam_names)
+                pool = batch["ood_seeds"][o_idx * ood_slice:(o_idx + 1) * ood_slice]
+                partition = "ood"
+            else:
+                # slice divisor = number of NON-OOD definitions (jamming defs draw
+                # from the OOD pool only — 0 train/val/test scenarios per §3)
+                non_ood_defs = [s for s in batch["scenarios"]
+                                if not s.get("name", "").startswith("channel-jamming")]
+                n_defs = len(non_ood_defs)
+                train_slice = len(batch["train_seeds"]) // n_defs
+                val_slice = len(batch["val_seeds"]) // n_defs
+                test_slice = len(batch["test_seeds"]) // n_defs
+                pool = (list(batch["train_seeds"])[def_idx * train_slice:(def_idx + 1) * train_slice]
+                        + list(batch["val_seeds"])[def_idx * val_slice:(def_idx + 1) * val_slice]
+                        + list(batch["test_seeds"])[def_idx * test_slice:(def_idx + 1) * test_slice])
+                partition = "pool"
         else:
             pool = batch["attack_seeds"] if kind == "attack" and attack_dict.get("attack_type", "none") != "none" \
                 else batch["benign_seeds"]
@@ -110,6 +148,20 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
             arm = ""
             env = _env_from_dict(spec.get("env"))
             env_kwargs = {"environment": env} if env is not None else {}
+            spec_partition = partition
+            # Phase 4 partition resolution: the partition of a scenario is FIXED
+            # by which pool its seed came from (seed ranges are disjoint):
+            #   [1000, 5000)  → train   [5000, 9000)  → val
+            #   [9000, 13000) → test    [13000, ∞)   → ood
+            if partition == "pool":
+                if seed < 5000:
+                    spec_partition = "train"
+                elif seed < 9000:
+                    spec_partition = "val"
+                elif seed < 13000:
+                    spec_partition = "test"
+                else:
+                    spec_partition = "ood"
             if make_pair:
                 pair_id = f"pair-{len(configs) // 2 + 1:03d}-{spec.get('name', kind)}"
                 arm = "attack"
@@ -119,12 +171,17 @@ def build_scenario_configs(batch: dict) -> list[ScenarioConfig]:
                     seed=seed, n_blocks=n_blocks, horizons=horizons,
                     pair_id=pair_id, arm="normal", **env_kwargs,
                 ))
-            configs.append(ScenarioConfig(
+            cfg = ScenarioConfig(
                 scenario_id=f"{kind}-{spec.get('name', attack_dict.get('attack_type', 'x'))}-s{seed}",
                 seed=seed, n_blocks=n_blocks, horizons=horizons,
                 attack=attack_cfg,
                 pair_id=pair_id, arm=arm, **env_kwargs,
-            ))
+            )
+            # frozen dataclass: attach partition/dataset_version as extra attributes
+            # (evaluation metadata only — never model inputs; Phase 4 protocol §2)
+            object.__setattr__(cfg, "partition", spec_partition)
+            object.__setattr__(cfg, "dataset_version", dataset_version)
+            configs.append(cfg)
     return configs
 
 

@@ -139,3 +139,24 @@ evidence, not significance.
 Categories: anticipatory (lead > grace=5), immediate (0 ≤ lead ≤ 5), late (< 0),
 none, false_early_warning (benign scenarios), unattributed (benign twin warned
 identically). Missing warnings are null, never zero.
+
+---
+
+## 6. Phase 4 measured results (2026-10-09; evidence: artifacts/phase4/)
+
+Protocol frozen in `docs/phase4-protocol.md` v1; 284 scenarios (234 independent + 50 counterfactual).
+Evaluated with B=2000 scenario-level bootstrap CIs and 5 independent split seeds (42, 7, 101, 2024, 31337).
+
+### Logistic primary baseline (Group D, H=100)
+- Multi-split test AUROC: mean 0.830 ± 0.015 (range [0.816, 0.847]).
+- Attack-specific warning success rates (split 42, H=100):
+  - `lo_manipulation`: 1.0 (95% CI [1.0, 1.0]), median lead 103.0 blocks (95% CI [62.0, 208.0]).
+  - `calibration_manipulation`: 1.0 (95% CI [1.0, 1.0]), median lead 124.0 blocks (95% CI [103.0, 142.5]).
+  - `intercept_resend`: 0.0 (95% CI [0.0, 0.0]) — NO PRE-ONSET SIGNAL OBSERVED (sudden attack, class C).
+  - `channel_jamming` (held-out OOD family): 0.367 (95% CI [0.20, 0.533]), median lead 73.0 blocks (95% CI [21.0, 128.0]).
+- False early-warning rates (split 42, H=100):
+  - `FWR(BENIGN_DRIFT)`: 0.0% (95% CI [0.0, 0.0]) — 0.0 across ALL 5 split seeds.
+  - `FWR(NORMAL)`: 23.1% (95% CI [0.0, 46.2%]; 5-split mean 22.6%).
+- Forecast vs Conventional comparison:
+  - Conventional detector suffers 100% FWR on BENIGN_DRIFT and 76.9% on NORMAL.
+  - Forecast detector warns 463.5 blocks (4.6 s) earlier on `calibration_manipulation` and 498.0 blocks (5.0 s) earlier on `lo_manipulation`.

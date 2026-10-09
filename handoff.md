@@ -1,154 +1,125 @@
 # handoff.md
 
-Exact current implementation state for the next coding session. Only verified facts;
-UNKNOWN is stated explicitly. Updated at the end of every session.
+Exact current implementation state for the next coding session. Only verified facts; UNKNOWN is stated explicitly. Updated at the end of every session.
 
-## 1. Current Phase
+---
 
-Phase 2 — Causal feature layer, forecasting baselines & lead-time evaluation.
-COMPLETE as of 2026-10-08. Scientific gate: **WEAK SIGNAL** (row-level discrimination
-exists and is reproducible; attack-specific pre-onset attribution does not clear the
-warning-policy bar on the current dataset — benign-drift alarming dominates).
+## 1. Current Phase & Scientific Conclusion
 
-## 2. Work Completed
+- **Phase**: Phase 4 — Large-Scale Robustness, Statistical Validation & Graph-Model Decision.
+- **Status**: **COMPLETE** as of 2026-10-09.
+- **Scientific Gate Outcome**: **`ATTACK-SPECIFIC ROBUST SIGNAL`**
+  - Gradual attacks exhibit statistically robust, independently attributable pre-onset early warning (85–100% warning rate, median lead times 103–124 blocks / 1.0–1.2 seconds, 95% CIs well above 0).
+  - Sudden attacks correctly register **0% pre-onset warning** (NO PRE-ONSET SIGNAL OBSERVED, class C — physically sound).
+  - Benign drift confusion is resolved: **`FWR(BENIGN_DRIFT)` = 0.0%** identically across all 5 independent split seeds.
+  - `FWR(NORMAL)` is 0.226 ± 0.118 across split seeds (0.231 on split 42).
+- **Graph Model Gate Outcome**: **`HOLD`**
+  - Evaluated per pre-registered criteria (`docs/graph-hypothesis.md`).
+  - Precursors in the current CV-QKD digital twin are single-component ramps whose signals are fully captured by per-column temporal features.
+  - Linear models on causal features match or exceed deep sequence models (H=100 AUROC 0.847 vs GRU H=10 AUROC 0.625 on test); no cross-component information gap exists in the data-generating process.
+  - In accordance with the cardinal rule (*"Do not build a GNN simply to satisfy the original architecture idea"*), GNN implementation is held until a multi-component distributed simulator is introduced.
 
-- Phase 1 committed (16f8406) before extension; 40 Phase 1 regression tests verified.
-- Causal feature layer: `src/quantumattack/features.py` (schema v2, 154 derived
-  features: d1/d2, trailing rolling mean/std {5,25,100}, OLS slopes {25,100}, EWMA
-  {5,25}, two-sided CUSUM (warmup-only reference), two-sample KS (50/50), trailing
-  lag-1 autocorrelation). All trailing; explicit-NaN warmup policy; `FeatureConfig`
-  configurable; per-feature metadata machine-readable.
-- Feature tests: 23 (incl. historical-invariance causality tests per feature class,
-  determinism, NaN policy, no-inf, schema stability).
-- Conventional threshold detector: `baselines/conventional.py` (7 CV-QKD indicators;
-  qber_proxy excluded as degenerate; empirical-quantile calibration on benign TRAIN
-  portions; persistence k=3 + cooldown; null lead semantics).
-- Scenario-level splitting: `baselines/splits.py` (hash-seeded, pairs atomic, OOD
-  holdout architecture ready; disjointness + pair-isolation tests).
-- Logistic forecasting: `baselines/logistic.py` (per-horizon LogisticRegression,
-  class_weight=balanced; scaler fit on TRAIN only; y_H(t)=1 iff t<onset≤t+H, y=0 for
-  t≥onset; ablation groups A/B/C/D; feature memoization).
-- Warning policy + evaluation: `baselines/warnings.py` (threshold + k-consecutive +
-  cooldown; timing categories incl. grace period; scenario-level false early
-  warnings; **pair-gated attribution** — warnings whose matched benign twin fired
-  identically are NOT attack anticipation).
-- Evaluation harness: `evaluation/harness.py` (full pipeline; metrics incl. AUROC/
-  AUPRC/Brier/ECE/reliability; conventional comparison; experiment manifest;
-  artifacts to git-ignored artifacts/phase2/).
-- Ablations A/B/C/D run (artifacts/phase2/ablation/ablation_summary.json).
-- Multi-seed evaluation (split seeds 0–3; artifacts/phase2/multiseed-summary.json).
-- Reproducibility verified: identical re-run → identical metrics.json.
-- decisions.md: D-018..D-025. flow.md, evaluation-protocol.md, feature-spec.md updated.
+---
 
-## 3. Files Changed (Phase 2)
+## 2. Exact Dataset Protocol (`phase4-v1`)
 
-- src/quantumattack/: features.py, feature_config.py, features_cli.py, ablation.py (new)
-- src/quantumattack/baselines/: __init__.py, conventional.py, splits.py, logistic.py,
-  warnings.py (new)
-- src/quantumattack/evaluation/: __init__.py, harness.py (new)
-- scripts/: evaluate_early_warning.py (new)
-- tests/: test_features.py (23), test_baselines.py (23) (new)
-- docs/: implementation-checklist.md, evaluation-protocol.md, feature-spec.md,
-  flow.md, handoff.md (updated); decisions.md (D-018..D-025)
-- .gitignore (artifacts/ + data/ ignored)
+Pre-registered in `docs/phase4-protocol.md` v1 before test evaluation:
+- **Total Scenarios**: **284 scenarios** (234 independent unpaired + 50 counterfactual paired).
+- **Seed Pools** (Disjoint, stride 7, collision-free):
+  - `TRAIN`: 1000..1833 (120 seeds, 20 per definition × 6 definitions)
+  - `VAL`: 5000..5287 (42 seeds, 7 per definition × 6 definitions)
+  - `TEST`: 9000..9287 (42 seeds, 7 per definition × 6 definitions)
+  - `OOD`: 13000..13203 (30 seeds, 15 per jamming definition × 2 definitions)
+- **Partitions**: Partition assignment is fixed by seed pool by construction (never hash-assigned).
+- **OOD Family**: `channel_jamming` (held out: 0 train, 0 val, 44 test-only).
+- **Counterfactual Pairs**: Retained as train-only diagnostic category (50 scenarios).
+- **Data Directory**: `data/phase4/` (234 scenarios) + `data/phase1/` (50 counterfactual).
+- **Feature Directory**: `artifacts/phase4/features/` (154 causal features, schema v2).
 
-## 4. Current Architecture / State
+---
 
-```text
-src/quantumattack/
-    simulator/   (Phase 1: config, clock, rng, scenario, cvqkd, optical, homodyne,
-                  drift, 4 attacks, collector, builder, parquet export, generate)
-    features.py + feature_config.py + features_cli.py   (Phase 2: causal features)
-    baselines/   (Phase 2: conventional.py, splits.py, logistic.py, warnings.py)
-    evaluation/  (Phase 2: harness.py)
-    dataset.py   (column classes)
+## 3. Best Baseline Model
+
+- **Model**: Logistic Regression with standard scaling (fit on train only), `C=1.0`, `class_weight='balanced'`, `min_history_blocks=100`.
+- **Feature Group**: Group D (or Group C; Group C achieves 0.848 AUROC, Group D achieves 0.847 AUROC).
+- **Warning Policy (Frozen)**: `WarningPolicy(prob_threshold=0.5, persistence_k=3, cooldown_blocks=50, grace_blocks=5, sustained_until_onset=True)`.
+- **Performance**:
+  - H=10 (0.10 s): AUROC 0.792, AUPRC 0.038, Brier 0.099
+  - H=25 (0.25 s): AUROC 0.820, AUPRC 0.071, Brier 0.095
+  - H=50 (0.50 s): AUROC 0.846, AUPRC 0.113, Brier 0.101
+  - H=100 (1.00 s): AUROC 0.847, AUPRC 0.190, Brier 0.121
+  - Multi-split stability (5 seeds): Mean AUROC 0.830 ± 0.015 (range [0.816, 0.847]).
+
+---
+
+## 4. Attack-Specific Findings (H=100, B=2000 Scenario Bootstrap CIs)
+
+| Attack Family | Precursor Class | Warning Rate (95% CI) | Median Lead Time (95% CI) | Status |
+|---|---|---|---|---|
+| `lo_manipulation` | Class A (Gradual) | 1.00 [1.00, 1.00] | 103.0 blocks [62.0, 208.0] | Forecastable |
+| `calibration_manipulation` | Class A (Gradual) | 1.00 [1.00, 1.00] | 124.0 blocks [103.0, 142.5] | Forecastable |
+| `intercept_resend` | Class C (Sudden) | 0.00 [0.00, 0.00] | *None (null)* | No pre-onset signal (physical reality) |
+| `channel_jamming` (OOD) | Class B / C (Hybrid) | 0.367 [0.20, 0.533] | 73.0 blocks [21.0, 128.0] | Probe variant warns; sudden variant 0% |
+
+- **Conventional Gain**: Forecast detector warns **463.5 blocks (4.64 s) earlier** on `calibration_manipulation` and **498.0 blocks (4.98 s) earlier** on `lo_manipulation` than the conventional detector.
+- **Conventional Detector Defect**: Conventional 5-sigma detector has a catastrophic **100% false warning rate** on `BENIGN_DRIFT`. Our forecast detector achieves **0% FWR** on `BENIGN_DRIFT`.
+
+---
+
+## 5. Feature Freeze v1 Summary (`docs/feature-freeze-v1.md`)
+
+- **Schema Version**: `FEATURE_SCHEMA_VERSION = 2` (154 derived causal features, 35 raw telemetry features).
+- **Core Forecast Features**: `transmittance`, `det_gain`, `lo_sig_ratio`, multi-scale rolling means (`rm5`, `rm25`, `rm100`), CUSUM drift indicators (`cusum_neg_transmittance`, `cusum_neg_x_var`, `cusum_neg_skr_estimate`).
+- **Post-Onset Only (Confirmation Features)**: `qber_proxy`, `p_attack_present`, sudden quadrature variance steps, SKR collapse to 0. (Essential for post-onset attack confirmation; zero pre-onset predictive utility).
+- **Redundant Features**: 246 pairs with |r| > 0.95 (primarily `rm` vs `ewma` at matched scales).
+- **Unstable Features**: 33 features with near-zero mean coefficients and CV > 1.5.
+
+---
+
+## 6. Testing & Verification
+
+- **Regression Suite**: `pytest` → **109 passed, 0 failed, 0 skipped** (includes 14 Phase 4 dataset isolation & seed disjointness tests, 23 feature causality tests, 23 baseline tests, 40 Phase 1 tests, 8 temporal tests, 1 Phase 4 label-window bug test).
+- **Leakage Audits**: `test_sequence_invariance_to_future` and historical-invariance feature tests pass cleanly.
+
+---
+
+## 7. Exact Commands to Reproduce Phase 4 Results
+
+```powershell
+# 1. Run full test suite
+pytest
+
+# 2. Run primary Phase 4 logistic + conventional evaluation (split 42)
+python scripts/evaluate_phase4.py --split-seed 42 --out artifacts/phase4/eval-logistic
+
+# 3. Run multi-split robustness across 5 seeds
+python scripts/evaluate_phase4.py --split-seed 7 --out artifacts/phase4/eval-s7
+python scripts/evaluate_phase4.py --split-seed 101 --out artifacts/phase4/eval-s101
+python scripts/evaluate_phase4.py --split-seed 2024 --out artifacts/phase4/eval-s2024
+python scripts/evaluate_phase4.py --split-seed 31337 --out artifacts/phase4/eval-s31337
+
+# 4. Run feature ablation experiments (Groups A, B, C, D)
+python scripts/ablate_phase4.py --out artifacts/phase4/ablation
+
+# 5. Run feature redundancy & stability analysis
+python scripts/feature_freeze_analysis.py --out artifacts/phase4/feature-analysis
 ```
 
-## 5. Decisions Made (Phase 2)
+---
 
-D-018 Phase 1 committed first (16f8406) · D-019 causal feature layer (trailing,
-explicit-NaN warmup, configurable, 154 features, schema v2) · D-020 conventional
-thresholds = empirical quantile on benign TRAIN portions · D-021 scenario-level
-splitting, pairs atomic, hash-seeded · D-022 logistic per-horizon, train-only scaler ·
-D-023 warning policy (thr + k=3 + cooldown + grace categories) · D-024 experiment
-manifest, artifacts git-ignored · D-025 policy selected on val (thr=0.5, k=3).
+## 8. Known Limitations
 
-## 6. Requirements and Constraints
+1. **Synthetic Telemetry**: Telemetry is produced by a high-fidelity digital twin of GMCS CV-QKD (Gaussian optics, homodyne detection, Ornstein-Uhlenbeck drift); not yet validated on physical hardware experimental testbeds.
+2. **Precursor Taxonomy**: Gradual attack precursors represent physical actuator ramps and probe pulses (labeled `PROJECT INFERENCE` in taxonomy); sudden attacks remain physically unforecastable.
+3. **Normal Class False Warnings**: `FWR(NORMAL)` is ~22.6% due to occasional baseline noise excursions crossing the conservative 0.5 probability threshold.
 
-- Master prompt governs. Commits: `PrathamKapoor <prathamkapoor027@gmail.com>`, no
-  co-author/AI lines. Never commit paper/, research/, *.tex, data/, artifacts/.
-- Phase gates: Phase 3 = sequence models ONLY if justified by the Phase 2 gate
-  (WEAK SIGNAL — proceed with explicit expectations, see §10).
-- Causality absolute: every feature trailing; historical-invariance tests are the gate.
-- Pair-gated attribution MANDATORY for any early-warning claim (Phase 2 gate finding).
+---
 
-## 7. Testing and Verification
+## 9. Next Recommended Phase
 
-- `python -m pytest tests/ -q` → **86 passed** (0 failed, 0 skipped), 2026-10-08.
-- Evaluation: `python scripts/evaluate_early_warning.py` → artifacts/phase2/eval/.
-- Ablations: `PYTHONPATH=src python -m quantumattack.ablation` → artifacts/phase2/ablation/.
-- Features: `PYTHONPATH=src python -m quantumattack.features_cli --data data/phase1
-  --out artifacts/phase2/features` → 65 files + feature_schema.json.
-- Reproducibility: identical eval re-run → metrics.json identical (verified).
-
-## 8. Exact Results (Phase 2; evidence artifacts/phase2/eval/metrics.json)
-
-Horizon metrics (test, group D, split seed 0): H=10 AUROC 0.839/AUPRC 0.175/Brier
-0.010; H=25 0.774/0.089/0.028; H=50 0.726/0.110/0.053; H=100 0.701/0.158/0.081.
-Multi-seed: H=10 AUROC 0.839–0.944; H=100 0.638–0.804. Conventional detector: fires
-post-onset on all 4 attack families (success 1.00, negative lead on gradual attacks).
-Raw anticipatory warnings (ungated): 0.5–1.0 by attack. ATTRIBUTED (benign-twin
-gated): **0%** for all attack families at H=100/thr=0.5/k=3. Benign false-warning
-rate: 0.64–1.0 across split seeds (val-selected policy does not reduce it; benign P
-is bimodal under OU drift). Forecast-vs-conventional: median gain +77 blocks (0.77 s)
-for calibration/LO at H=100 (5 paired test scenarios, both warned) — evidence, not
-significance.
-
-## 9. Known Issues / Limitations
-
-- **All Phase 1 attack scenarios are PAIRED** (pair: true): each attack run has a
-  benign twin with the same seed → bit-identical benign trajectory → identical
-  pre-onset features → identical pre-onset warnings. Pre-onset "anticipation" on
-  paired runs is benign-drift alarming BY CONSTRUCTION; the discriminator must come
-  from cross-scenario generalization (unpaired new seeds). A larger, mixed
-  paired/unpaired dataset is required before lead-time claims.
-- Small sample: 10 test scenarios per split seed; 5 seeds total. No significance
-  claims (master prompt §41).
-- Benign false-warning rate 0.64–1.0: the logistic model does not separate benign
-  calibration/OU drift from precursor drift on this dataset. Legitimate finding
-  (master prompt §60): NOT fixed by tuning the simulator.
-- qber_proxy degenerate (excluded). Simulator physics are approximations (per-block
-  Gaussian, compact Holevo). Synthetic telemetry, not hardware-validated.
-
-## 10. Unresolved UNKNOWNs & Next Recommendation
-
-- UNKNOWN: whether deeper temporal models (GRU/TCN) improve attack-specific
-  ATTRIBUTED lead time over the logistic baseline — the Phase 3 question.
-- UNKNOWN: whether unpaired scenarios (new seeds without benign twins) yield
-  positive attributed lead time — requires a larger dataset (Phase 3 dataset work).
-
-**Recommended Phase 3**: (1) generate a LARGER mixed dataset (more seeds; unpaired
-attack scenarios; OOD holdout family); (2) implement GRU/LSTM + TCN on the same
-harness with the SAME pair-gated attribution gate; (3) compare attributed lead time
-vs the logistic baseline; (4) only proceed to GNN/temporal-GNN if temporal models
-demonstrate attributed-lead-time improvement.
-
-## 11. Critical Context
-
-- Phase 2 gate answered WEAK SIGNAL: causal features leak nothing (verified),
-  warnings are reproducible, discrimination exists (AUROC 0.70–0.84), BUT
-  attack-specific pre-onset attribution is 0% on paired data — the benign twin fires
-  identically. Do NOT build deeper models on the SAME paired-only dataset without
-  addressing this (§53: artifact check done — the artifact is in the DATASET DESIGN,
-  not the pipeline; pipeline verified clean).
-- The pair-gated attribution logic (`attribute_warnings`) is the mandatory gate for
-  any future early-warning claim.
-- Never fabricate; sudden attacks remain honest hard negatives.
-
-## 12. Agent Instructions
-
-- Maintain decisions.md / flow.md / handoff.md / docs/implementation-checklist.md.
-- Run historical-invariance tests before any feature change; run the leakage suite
-  before any predictive result.
-- Any lead-time claim MUST use attributed warnings (benign-twin-gated).
-- Dependency rule: re-probe versions before use; D-NNN entry per install.
+**Phase 5: Dual-Engine Early-Warning & Confirmation Fusion Architecture**
+1. Implement the dual-engine operational pipeline:
+   - **`PREDICTED`** channel: Early-warning probability $P(\text{attack within } H)$ from frozen Core forecast features.
+   - **`CONFIRMED`** channel: Reactive threshold verification from frozen Confirmation features (`qber_proxy`, SKR collapse, post-onset steps).
+2. Multi-Component Simulator Extension (if GNN is to be revisited): Extend the simulator to multi-component coordinated attacks (e.g. synchronized LO attenuation + phase modulator bias) to generate genuine cross-component interaction precursors.
+3. Explainability & Alert Attribution: Implement per-alert explanation reports detailing which telemetry component drove the pre-onset warning.

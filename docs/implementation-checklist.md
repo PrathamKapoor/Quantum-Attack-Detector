@@ -37,48 +37,79 @@ references (file, command, output) when marking.
 - [x] Research sources read at full-text level (Phase 1 opener) — evidence: docs/research-landscape.md (Phase 1 update)
 - [x] Phase 1 proposal approved by project owner (gate for all implementation work) — evidence: owner-issued Phase 1 master prompt (2026-10-07)
 
-## Phase 3 — Unpaired forecasting, attributed early warning & temporal model benchmark (current)
+## Phase 4 — Large-scale robustness, statistical validation & graph-model decision (current)
 
-Order follows the Phase 3 execution steps (§53). Evidence added as items complete.
+Order follows the Phase 4 execution steps (§50). Evidence added as items complete.
 
-### Dataset design
-- [ ] Phase 2 regression suite passes — evidence: pytest output
-- [ ] Unpaired dataset design documented — evidence: docs/dataset-spec.md + config
-- [ ] Independent benign scenarios generated — evidence: dataset manifest
-- [ ] Independent attack scenarios generated — evidence: dataset manifest
-- [ ] Pair structure retained for diagnostic experiments (COUNTERFACTUAL category) — evidence: config + docs
-- [ ] Train/validation/test scenario isolation verified — evidence: tests
-- [ ] Attack-family OOD split implemented (pre-registered) — evidence: config + tests
-- [ ] Larger multi-seed dataset generated — evidence: manifest scenario counts
+- [x] Phase 3 regression suite passes — evidence: pytest 109 passed (2026-10-09)
+- [x] environment revalidated — evidence: Python 3.13.14, numpy 2.4.4, scikit-learn 1.8.0, torch 2.13.0
+- [x] Phase 4 dataset protocol documented — evidence: docs/phase4-protocol.md v1 (pre-registered 2026-10-09)
+- [x] scenario generation scale determined — evidence: 284 scenarios (234 independent unpaired + 50 counterfactual)
+- [x] independent seed pools expanded — evidence: configs/simulation/phase4.yaml (stride-7 disjoint ranges: train 1000..1833, val 5000..5287, test 9000..9287, ood 13000..13203)
+- [x] train/validation/test split pre-registered — evidence: docs/phase4-protocol.md §3 (partition fixed by seed pool)
+- [x] OOD attack family pre-registered — evidence: docs/phase4-protocol.md §3 (`channel_jamming`, test-only, 0 train/val)
+- [x] dataset generated — evidence: data/phase4/ (234 scenarios, 2000 blocks each) + data/phase1 (50 counterfactual)
+- [x] manifest validated — evidence: data/phase4/manifest.json + tests/test_phase4_dataset.py
+- [x] scenario isolation validated — evidence: tests/test_phase4_dataset.py (14 tests passed)
+- [x] pair isolation validated — evidence: tests/test_phase4_dataset.py + SplitConfig counterfactual_to_train=True
+- [x] logistic baseline rerun — evidence: artifacts/phase4/eval-logistic/ (primary model)
+- [x] conventional baseline rerun — evidence: artifacts/phase4/eval-logistic/metrics.json (conventional_summary)
+- [x] GRU baseline rerun where justified — evidence: artifacts/phase4/eval-gru/ (H=10 evaluated, AUROC 0.625 vs 0.792 logistic; complexity gate applied)
+- [x] TCN baseline rerun where justified — evidence: Phase 3 / Phase 4 complexity gate applied (§16/§42: no attributable lead-time advantage over logistic)
+- [x] multi-horizon evaluation completed — evidence: H=10, 25, 50, 100 in phase4_metrics.json
+- [x] multi-seed evaluation completed — evidence: artifacts/phase4/multisplit-summary.json (splits 42, 7, 101, 2024, 31337)
+- [x] confidence intervals computed — evidence: artifacts/phase4/eval-logistic/phase4_metrics.json (B=2000 scenario bootstrap)
+- [x] attack-specific confidence intervals computed — evidence: phase4_metrics.json (ci_report per attack family)
+- [x] bootstrap/scenario-level uncertainty evaluated — evidence: scripts/evaluate_phase4.py (scenario_bootstrap_ci)
+- [x] false-warning analysis completed — evidence: phase4_metrics.json (NORMAL FWR=0.231, BENIGN_DRIFT FWR=0.0)
+- [x] attributed lead-time analysis completed — evidence: phase4_metrics.json (lo_manipulation: 83.5 blocks, cal_manipulation: 109.0 blocks)
+- [x] conventional-vs-forecast comparison completed — evidence: metrics.json (forecast_vs_conventional)
+- [x] OOD evaluation completed — evidence: channel_jamming warning rate 36.7% (probe variant), 0% (sudden variant)
+- [x] feature ablation completed — evidence: artifacts/phase4/ablation/ablation_summary.json (Groups A, B, C, D)
+- [x] robustness analysis completed — evidence: multisplit-summary.json + feature_freeze_analysis.py
+- [x] graph hypothesis formally specified — evidence: docs/graph-hypothesis.md
+- [x] graph decision gate evaluated — evidence: docs/graph-hypothesis.md (Gate Decision: HOLD)
+- [x] GNN implemented ONLY if gate criteria satisfied — evidence: GNN not implemented as gate criteria resulted in HOLD (§42/§43)
+- [x] GNN evaluated using identical harness if implemented — evidence: N/A (Gate HOLD)
+- [x] graph ablation completed if applicable — evidence: N/A (Gate HOLD)
+- [x] leakage audit completed — evidence: test_sequence_invariance_to_future + test_features.py + split isolation tests pass
+- [x] reproducibility verified — evidence: deterministic seed pools, configs/simulation/phase4.yaml
+- [x] documentation updated — evidence: docs/phase4-protocol.md, docs/graph-hypothesis.md, docs/feature-freeze-v1.md, decisions.md, flow.md, handoff.md
+- [x] Phase 4 report produced — evidence: docs/phase4-final-report.md
 
-### Baseline re-evaluation
-- [ ] Logistic baseline rerun — evidence: metrics output
-- [ ] Conventional baseline rerun (same calibration policy) — evidence: metrics output
-- [ ] Attribution policy verified (Metric A independent / Metric B counterfactual) — evidence: metrics
-- [ ] False-warning rate measured — evidence: metrics
-- [ ] Lead-time distribution measured (percentiles, nulls) — evidence: metrics
-- [ ] Attack-specific lead time measured — evidence: per-attack results
-- [ ] Sudden-attack behavior reported separately — evidence: results
+## Phase 3 — Unpaired forecasting, attributed early warning & temporal model benchmark (complete; commit c9cb1a8)
 
-### Temporal models
-- [ ] GRU/LSTM implemented — evidence: src/quantumattack/models/
-- [ ] TCN implemented (causal convolutions) — evidence: src/quantumattack/models/
-- [ ] TCN causality test added — evidence: tests
-- [ ] Identical evaluation harness used — evidence: harness runs
-- [ ] Model parameters/configuration recorded — evidence: experiment manifests
-- [ ] Temporal leakage tests extended (sequence invariance) — evidence: tests
-- [ ] Sequence construction tested (ordering, boundaries) — evidence: tests
-- [ ] Ablations completed (feature/model/attack) — evidence: ablation outputs
-- [ ] Multi-seed evaluation completed — evidence: outputs
-- [ ] OOD experiment completed — evidence: outputs
-- [ ] Statistical uncertainty reported — evidence: report
-- [ ] Results reproduced — evidence: rerun equality
-
-### Documentation & closure
-- [ ] decisions.md updated — evidence: decisions.md
-- [ ] flow.md updated — evidence: flow.md
-- [ ] handoff.md updated — evidence: handoff.md
-- [ ] Phase 3 report generated — evidence: docs/phase3-final-report.md
+- [x] Phase 2 regression suite passes — evidence: pytest output
+- [x] Unpaired dataset design documented — evidence: docs/dataset-spec.md + config
+- [x] Independent benign scenarios generated — evidence: dataset manifest
+- [x] Independent attack scenarios generated — evidence: dataset manifest
+- [x] Pair structure retained for diagnostic experiments (COUNTERFACTUAL category) — evidence: config + docs
+- [x] Train/validation/test scenario isolation verified — evidence: tests
+- [x] Attack-family OOD split implemented (pre-registered) — evidence: config + tests
+- [x] Larger multi-seed dataset generated — evidence: manifest scenario counts
+- [x] Logistic baseline rerun — evidence: metrics output
+- [x] Conventional baseline rerun (same calibration policy) — evidence: metrics output
+- [x] Attribution policy verified (Metric A independent / Metric B counterfactual) — evidence: metrics
+- [x] False-warning rate measured — evidence: metrics
+- [x] Lead-time distribution measured (percentiles, nulls) — evidence: metrics
+- [x] Attack-specific lead time measured — evidence: per-attack results
+- [x] Sudden-attack behavior reported separately — evidence: results
+- [x] GRU/LSTM implemented — evidence: src/quantumattack/models/
+- [x] TCN implemented (causal convolutions) — evidence: src/quantumattack/models/
+- [x] TCN causality test added — evidence: tests
+- [x] Identical evaluation harness used — evidence: harness runs
+- [x] Model parameters/configuration recorded — evidence: experiment manifests
+- [x] Temporal leakage tests extended (sequence invariance) — evidence: tests
+- [x] Sequence construction tested (ordering, boundaries) — evidence: tests
+- [x] Ablations completed (feature/model/attack) — evidence: ablation outputs
+- [x] Multi-seed evaluation completed — evidence: outputs
+- [x] OOD experiment completed — evidence: outputs
+- [x] Statistical uncertainty reported — evidence: report
+- [x] Results reproduced — evidence: rerun equality
+- [x] decisions.md updated — evidence: decisions.md
+- [x] flow.md updated — evidence: flow.md
+- [x] handoff.md updated — evidence: handoff.md
+- [x] Phase 3 report generated — evidence: docs/phase3-final-report.md
 
 ## Phase 2 — Causal feature layer, forecasting baselines & lead-time evaluation (complete; commits 2f5bf74, 8b30de0)
 

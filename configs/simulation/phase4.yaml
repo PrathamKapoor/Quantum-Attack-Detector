@@ -1,0 +1,103 @@
+# Phase 4 dataset generation batch (PRE-REGISTERED in docs/phase4-protocol.md v1,
+# 2026-10-09, BEFORE any Phase 4 test results were generated; Phase 4 prompt §6).
+# 284 scenarios (234 independent + 50 counterfactual) with per-partition disjoint seed pools (stride-7
+# arithmetic, DEFINITION-SLICED: definition i of 8 takes pool[i*slice:(i+1)*slice],
+# no seed reuse across definitions); matched pairs from the Phase 2 batch RETAINED as the COUNTERFACTUAL
+# category (generated separately from phase1.yaml). OOD family: channel_jamming
+# (test-only; 30 OOD-pool scenarios + 14 TEST-pool jamming scenarios → 44 test-only
+# jamming scenarios, 0 in train/val). Per-definition slices: definition i of 8 takes
+# train[i*20:(i+1)*20], val[i*7:(i+1)*7], test[i*7:(i+1)*7]; jamming defs take
+# ood[i*15:(i+1)*15].
+# Partition assignment is FIXED BY SEED POOL (never hash-assigned): train/val/test
+# seeds never overlap. Split seeds for multi-split robustness (§25): hash-seeded
+# scenario-level re-assignment with SplitConfig(seed ∈ {42,7,101,2024,31337}).
+
+# --- seed pools (docs/phase4-protocol.md §2; disjoint, stride 7) ---
+# TRAIN: 1000 + i*7, i=0..169 (170 seeds → 20 per definition x 8 definitions)
+# VAL:   5000 + i*7, i=0..59  (60 seeds → 7-8 per definition x 8 definitions)
+# TEST:  9000 + i*7, i=0..59  (60 seeds → 7-8 per definition x 8 definitions)
+# OOD:  13000 + i*7, i=0..29  (30 seeds → 15 per jamming variant x 2 variants)
+
+shared:
+  n_blocks: 2000
+  horizons: [10, 25, 50, 100]
+  dataset_version: phase4-v1
+
+# --- TRAIN pool (1000 + i*7, i=0..119; 120 seeds, sliced 20/def x 6 defs) ---
+train_seeds: [
+  1000, 1007, 1014, 1021, 1028, 1035, 1042, 1049, 1056, 1063, 1070, 1077, 1084, 1091, 1098, 1105, 1112, 1119, 1126, 1133,
+  1140, 1147, 1154, 1161, 1168, 1175, 1182, 1189, 1196, 1203, 1210, 1217, 1224, 1231, 1238, 1245, 1252, 1259, 1266, 1273,
+  1280, 1287, 1294, 1301, 1308, 1315, 1322, 1329, 1336, 1343, 1350, 1357, 1364, 1371, 1378, 1385, 1392, 1399, 1406, 1413,
+  1420, 1427, 1434, 1441, 1448, 1455, 1462, 1469, 1476, 1483, 1490, 1497, 1504, 1511, 1518, 1525, 1532, 1539, 1546, 1553,
+  1560, 1567, 1574, 1581, 1588, 1595, 1602, 1609, 1616, 1623, 1630, 1637, 1644, 1651, 1658, 1665, 1672, 1679, 1686, 1693,
+  1700, 1707, 1714, 1721, 1728, 1735, 1742, 1749, 1756, 1763, 1770, 1777, 1784, 1791, 1798, 1805, 1812, 1819, 1826, 1833
+]
+# --- VAL pool (5000 + i*7, i=0..41; 42 seeds, sliced 7/def x 6 defs) ---
+val_seeds: [
+  5000, 5007, 5014, 5021, 5028, 5035, 5042, 5049, 5056, 5063, 5070, 5077, 5084, 5091, 5098, 5105, 5112, 5119, 5126, 5133,
+  5140, 5147, 5154, 5161, 5168, 5175, 5182, 5189, 5196, 5203, 5210, 5217, 5224, 5231, 5238, 5245, 5252, 5259, 5266, 5273,
+  5280, 5287
+]
+
+# --- TEST pool (9000 + i*7, i=0..41; 42 seeds, sliced 7/def x 6 defs) ---
+test_seeds: [
+  9000, 9007, 9014, 9021, 9028, 9035, 9042, 9049, 9056, 9063, 9070, 9077, 9084, 9091, 9098, 9105, 9112, 9119, 9126, 9133,
+  9140, 9147, 9154, 9161, 9168, 9175, 9182, 9189, 9196, 9203, 9210, 9217, 9224, 9231, 9238, 9245, 9252, 9259, 9266, 9273,
+  9280, 9287
+]
+
+# --- OOD pool (13000 + i*7, i=0..29; channel_jamming ONLY, test-only; 30 seeds, sliced 15/def x 2 defs) ---
+ood_seeds: [
+  13000, 13007, 13014, 13021, 13028, 13035, 13042, 13049, 13056, 13063, 13070, 13077, 13084, 13091, 13098, 13105, 13112, 13119, 13126, 13133,
+  13140, 13147, 13154, 13161, 13168, 13175, 13182, 13189, 13196, 13203
+]
+
+scenarios:
+  # --- independent benign (hard negatives; §10; NORMAL and BENIGN_DRIFT separate) ---
+  - name: plain
+    class: normal
+  - name: channel-drift
+    class: normal
+    env:
+      fiber_loss_ou_sigma_db: 0.03
+  - name: disturbance
+    class: normal
+    env:
+      disturbance_episode_prob: 0.5
+  # --- independent attacks (§6; no benign twins in the evaluation set) ---
+  - name: intercept-resend
+    class: attack
+    sample_onset: [900, 1400]     # uniform per scenario seed (unchanged from Phase 3)
+    sample:
+      tap_fraction: [0.2, 0.5]
+      resend_noise_mult: [1.5, 2.5]
+  - name: lo-manipulation
+    class: attack
+    sample_onset: [900, 1400]
+    sample:
+      lo_attack_attenuation: [0.3, 0.7]
+      lo_hidden_noise_factor: [0.3, 0.7]
+      ramp_min_blocks: [40, 100]
+      ramp_max_blocks: [100, 160]
+  - name: calibration-manipulation
+    class: attack
+    sample_onset: [900, 1400]
+    sample:
+      cal_gain_bias: [0.05, 0.25]
+      cal_offset_bias_snu: [0.02, 0.08]
+      cal_ramp_min_blocks: [50, 120]
+      cal_ramp_max_blocks: [120, 180]
+  - name: channel-jamming-probes
+    class: attack
+    sample_onset: [900, 1400]
+    sample:
+      jamming_power_snu: [0.3, 0.8]
+      probe_enabled: [true]
+      probe_lambda: [1.0, 4.0]
+      precursor_lead_blocks: [80, 140]
+  - name: channel-jamming-sudden
+    class: attack
+    sample_onset: [900, 1400]
+    sample:
+      jamming_power_snu: [0.3, 0.8]
+      probe_enabled: [false]

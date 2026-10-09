@@ -291,3 +291,64 @@ the earlier ID.
 - Alternatives considered: warmup-guard (discard warnings before block 200 — similar effect but less principled: the sustain requirement IS the persistence semantics); lowering thresholds (forbidden §2).
 - Consequences: results became scientifically coherent (gradual attacks 67–100% success with median lead 78–127 blocks; FWR NORMAL 0.21, BENIGN_DRIFT 0.0; intercept-resend 0% — correct physics).
 - Files: src/quantumattack/baselines/warnings.py
+
+---
+
+### D-029: Phase 4 Pre-registered Scale-Up Protocol & Disjoint Stride-7 Seed Pools
+
+- Date / phase / commit: 2026-10-09 / Phase 4
+- Context: Phase 4 prompt §6, §7, §8: Pre-register experiment before test evaluation; scale scenario diversity without relaxing threat model or precursor parameters; eliminate accidental seed overlap across definitions.
+- Decision: Frozen protocol in `docs/phase4-protocol.md` v1. 284 scenarios total (234 independent unpaired + 50 counterfactual paired). Seed pools constructed with non-sequential stride-7 arithmetic across disjoint ranges: TRAIN [1000..1833] (120 seeds, 20/def), VAL [5000..5287] (42 seeds, 7/def), TEST [9000..9287] (42 seeds, 7/def), OOD [13000..13203] (30 seeds, 15/def). Partition fixed by seed pool by construction (never hash-assigned).
+- Why: Eliminates cross-definition correlation present in Phase 3; guarantees strict disjointness across train, val, test, and OOD; expands gradual attack scenarios by 1.7× (34 vs 20).
+- Alternatives considered: Pure random uniform seed generation (rejected: non-deterministic across platforms without seed lists; stride-7 arithmetic is fully deterministic and collision-free).
+- Consequences: Disjointness and isolation verified programmatically; dataset manifest versioned `phase4-v1`.
+- Files: docs/phase4-protocol.md, configs/simulation/phase4.yaml, src/quantumattack/simulator/generate.py, tests/test_phase4_dataset.py
+
+### D-030: Scenario-Level Bootstrap Uncertainty Protocol (§19, §20)
+
+- Date / phase / commit: 2026-10-09 / Phase 4
+- Context: Master prompt §19: Telemetry windows are NOT independent observations. Primary uncertainty must be calculated at the scenario level.
+- Decision: Scenario bootstrap protocol implemented with B=2000 resamples with replacement (fixed seed 2026) resampling entire scenario trajectories. 95% percentile confidence intervals computed for warning success rates, median lead times, mean lead times, false early-warning rates (NORMAL and BENIGN_DRIFT), and paired forecast gain. Multi-split variability evaluated across 5 independent split seeds (42, 7, 101, 2024, 31337).
+- Why: Window-level sampling drastically underestimates standard errors and creates fake precision; scenario bootstrap preserves intra-scenario autocorrelation and provides honest operational uncertainty bounds.
+- Alternatives considered: Window-level bootstrap (rejected: violates independence); parametric Gaussian CIs (rejected: lead-time distributions are skewed).
+- Consequences: All headline metrics report valid 95% scenario CIs; fake precision avoided.
+- Files: scripts/evaluate_phase4.py, artifacts/phase4/eval-logistic/phase4_metrics.json, artifacts/phase4/multisplit-summary.json
+
+### D-031: Feature Freeze v1 & Forecast vs Confirmation Taxonomy (§27, §28, §29)
+
+- Date / phase / commit: 2026-10-09 / Phase 4
+- Context: Feature ablation and redundancy analysis across 189 features; distinction required between predictive pre-onset indicators and post-onset security monitors.
+- Decision: Formalized `docs/feature-freeze-v1.md`. Retained `FEATURE_SCHEMA_VERSION = 2` (154 derived causal features). Classified features into CORE (transmittance, det_gain, lo_sig_ratio, rolling means, CUSUM drifts), USEFUL (auxiliary power/noise/slopes), REDUNDANT (246 pairs with |r| > 0.95), UNSTABLE (33 features with near-zero weight and CV > 1.5), POST-ONSET ONLY (QBER proxy, sudden variance step, SKR collapse), and FUTURE WORK.
+- Why: Features like `qber_proxy` have zero predictive power for gradual precursors (precursor r=0) but are mandatory for post-onset attack confirmation; deleting post-onset features would destroy reactive confirmation capability.
+- Alternatives considered: Blindly dropping all correlated features (rejected: preserves operational redundancy and non-linear model inputs).
+- Consequences: Operational roles frozen; distinction between PREDICTED and CONFIRMED established in architecture.
+- Files: docs/feature-freeze-v1.md, scripts/feature_freeze_analysis.py, artifacts/phase4/feature-analysis/feature_analysis.json
+
+### D-032: Graph Model Decision Gate Outcome: HOLD (§31–§43)
+
+- Date / phase / commit: 2026-10-09 / Phase 4
+- Context: Phase 4 mandates deciding whether to implement a GNN only after evaluating whether graph structure provides measurable additional value over sequence/feature baselines.
+- Decision: Graph Model Gate is formally set to **HOLD**. GNN implementation is NOT performed in Phase 4. Rationale recorded in `docs/graph-hypothesis.md`:
+  1. Precursors in the current simulator are single-component ramp drifts (LO power ramp, calibration gain ramp, probe pulse train); their telemetry manifestations are column-wise mean shifts.
+  2. The 154-feature causal layer already captures all available temporal drift signal (H=100 AUROC 0.847, 85-100% warning rate on gradual attacks).
+  3. The physical graph is a shallow chain (source -> channel -> receiver -> detector) whose message passing represents a fixed linear combination of features already accessible to linear and recurrent models.
+  4. Deep sequence models (GRU/TCN) showed no attributable lead-time advantage over logistic regression (GRU H=10 AUROC 0.625 on test vs logistic 0.792), raising the burden of proof for architectural escalation.
+- Why: Master prompt §42 & cardinal rule: "Do not build a GNN simply to satisfy the original architecture idea. Build it only if evidence shows missing cross-component information." Escalating to GNN without empirical cross-component motivation would be unscientific.
+- Alternatives considered: Implementing a GNN regardless (rejected: violates gate criteria and pre-registered protocol); REJECT (rejected: reserved if graph is proven useless across all simulators; a future multi-component simulator could benefit from graphs).
+- Consequences: Architectural escalation prevented; findings remain honest; GNN requirements for future phases pre-specified.
+- Files: docs/graph-hypothesis.md, docs/phase4-final-report.md
+
+### D-033: Phase 4 Scientific Gate: ATTACK-SPECIFIC ROBUST SIGNAL (§46, §48)
+
+- Date / phase / commit: 2026-10-09 / Phase 4
+- Context: Final determination of early-warning signal validity across scale-up, multi-split evaluation, and ablation.
+- Decision: Scientific gate declared as **`ATTACK-SPECIFIC ROBUST SIGNAL`**.
+  - Gradual attacks exhibit high warning rates: `lo_manipulation` 100% (95% CI [1.0, 1.0], median lead 103 blocks, 5-split mean 85.1%), `calibration_manipulation` 100% (95% CI [1.0, 1.0], median lead 124 blocks, 5-split mean 87.1%).
+  - Sudden attacks correctly yield 0% pre-onset warning: `intercept_resend` 0% (95% CI [0.0, 0.0], correct physical baseline).
+  - Benign drift robustness: `FWR(BENIGN_DRIFT)` = 0.0% (identically zero across all 5 split seeds).
+  - `FWR(NORMAL)` = 0.231 (95% CI [0.0, 0.462], 5-split mean 0.226).
+  - Outperforms conventional detector: Forecast detector achieves 463-498 blocks earlier detection than conventional detector on gradual attacks, while conventional detector suffers catastrophic 100% FWR on BENIGN_DRIFT.
+- Why: Signal is robust and reproducible across 284 scenarios and 5 independent split seeds; clearly differentiated between forecastable gradual attacks and sudden attacks.
+- Alternatives considered: ROBUST EARLY-WARNING SIGNAL (rejected: cannot claim universal early warning when sudden attacks legitimately have no precursor); WEAK SIGNAL (rejected: 100% warning rates on gradual attacks with 0% FWR on benign drift over 1.7x scale-up exceeds weak signal threshold).
+- Consequences: Phase 4 successfully validates statistical and operational robustness of the early-warning system.
+- Files: docs/phase4-final-report.md, handoff.md

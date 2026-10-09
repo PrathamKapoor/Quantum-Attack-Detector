@@ -167,15 +167,14 @@ def _drift_episode_blocks(env: EnvironmentState) -> set[int]:
     """Reconstruct which blocks the benign disturbance episode covered.
 
     The episode is a named simulation event: its blocks are ground truth (labels),
-    never inferred from telemetry (leakage risk #9).
+    never inferred from telemetry (leakage risk #9). The window is the ACTUAL
+    episode window recorded during stepping (episode_start_block..episode_end_block)
+    — the previous approximation (last `duration` blocks before run end) mislabeled
+    episodes that fire early (label-window bug, fixed Phase 4).
     """
     if not env.episode_fired:
         return set()
-    end = env._block  # total blocks stepped
-    start = max(0, end - env.config.disturbance_duration_blocks)
-    # approximate episode coverage: last `duration` blocks before episode end
-    # (exact per-block tracking kept simple: episode ran contiguous to its end)
-    return set(range(start, end)) if env.episode_remaining <= 0 else set(range(start, end))
+    return set(range(env.episode_start_block, env.episode_end_block + 1))
 
 
 def _scenario_class(config: ScenarioConfig, drift_blocks: set[int]) -> str:

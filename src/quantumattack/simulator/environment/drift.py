@@ -44,6 +44,8 @@ class EnvironmentState:
     episode_background: float = 0.0
     episode_clock_step: float = 0.0
     episode_fired: bool = False        # one episode max per scenario
+    episode_start_block: int = -1      # actual first active block (ground truth)
+    episode_end_block: int = -1        # actual last active block (ground truth)
     _block: int = 0
 
     @classmethod
@@ -124,9 +126,13 @@ class EnvironmentState:
             self.episode_clock_step = cfg.disturbance_clock_step_ns * (
                 1.0 if rng.random() < 0.5 else -1.0
             )
+            # actual episode window (ground truth for labels): this block is the
+            # first active block (background_spike is elevated from this step on)
+            self.episode_start_block = self._block
         if self.episode_active:
             self.background_spike += self.episode_background
             self.clock_offset_ns += self.episode_clock_step / self.config.disturbance_duration_blocks
             self.episode_remaining -= 1
+            self.episode_end_block = self._block
             if self.episode_remaining <= 0:
                 self.episode_active = False

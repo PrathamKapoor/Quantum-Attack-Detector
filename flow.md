@@ -5,12 +5,16 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
-Phase 3 IN PROGRESS (2026-10-08): unpaired dataset (160 scenarios) + pre-registered
-split/OOD + Metric A/B separation + GRU/TCN temporal models implemented. Logistic
-re-evaluated on the unpaired population (sustained policy: gradual attacks 67–100%
-independent success, median lead 78–127 blocks; FWR NORMAL 0.21, BENIGN_DRIFT 0.0;
-intercept-resend 0% — correct physics). GRU evaluated (86 tests incl. 8 temporal;
-AUROC 0.72–0.84; attributed lead 0.67–0.83). TCN evaluation running.
+Phase 4 COMPLETE (2026-10-09): Large-scale robustness & statistical validation (284 scenarios:
+234 independent unpaired + 50 counterfactual; 1.7× scale-up per gradual attack family).
+Pre-registered protocol (docs/phase4-protocol.md v1) + disjoint stride-7 seed pools.
+Multi-split evaluation (5 seeds: 42, 7, 101, 2024, 31337) + scenario-level bootstrap (B=2000).
+Scientific gate: **ATTACK-SPECIFIC ROBUST SIGNAL** (gradual attacks 85–100% warning rate,
+median lead 83–124 blocks; sudden attacks 0% — correct physics; BENIGN_DRIFT FWR = 0.0%;
+NORMAL FWR = 0.226).
+Graph-model gate: **HOLD** (precursors are single-component ramps; per-column features capture
+all signal; sequence models sufficient; no cross-component gap).
+Feature Freeze v1 documented (docs/feature-freeze-v1.md); 109 unit/integration tests passing.
 
 ## 1. Implemented flow (VERIFIED — Phase 1)
 
@@ -210,3 +214,12 @@ scenario-level splits with pair isolation → logistic per-horizon forecaster (t
 scaling) → warning policy + lead-time + false-warning evaluation → pair-gated
 attribution (Phase 2 gate fix) → ablations A/B/C/D → multi-seed evaluation (split
 seeds 0–3) → reproducibility verified (metrics identical) → decisions D-018..D-025.
+Phase 3 (2026-10-08): unpaired dataset (160 scenarios) → pre-registered split + OOD
+(channel_jamming held out) → sustained-until-onset policy (D-028) → GRU/TCN benchmark →
+Phase 3 report (commit c9cb1a8). Phase 4 (2026-10-09): protocol pre-registration
+(docs/phase4-protocol.md v1) → scale-up to 284 scenarios with disjoint stride-7 seed pools
+(train/val/test/ood) → label window bug fix on disturbance episodes → multi-split evaluation
+(5 seeds: 42, 7, 101, 2024, 31337) → scenario-level bootstrap CIs (B=2000) → attack-specific
+lead times & FWR → feature redundancy analysis & Feature Freeze v1 (docs/feature-freeze-v1.md) →
+graph hypothesis evaluation & Graph Gate: HOLD (docs/graph-hypothesis.md) → Scientific Gate:
+ATTACK-SPECIFIC ROBUST SIGNAL → 109 tests passing → decisions D-029..D-033.
