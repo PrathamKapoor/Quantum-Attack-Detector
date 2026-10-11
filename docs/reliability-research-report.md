@@ -548,3 +548,69 @@ GNN would address.
    claim, since G1–G4 are exposed.
 7. **Not recommended:** larger models, graph architectures, or a denoiser justified
    by the original noise-cliff finding, which was withdrawn as unsupported.
+---
+
+## 15. Causal warning repair (added 2026-10-12; D-049 .. D-053)
+
+An independent source audit confirmed five defects in the operational warning and
+accounting layer. All are corrected in source with independent acceptance tests
+(`tests/test_causal_warning_semantics.py`, 33 tests). The frozen datasets, model
+artifacts and v1 evidence files are unchanged; corrected results are written as
+separately versioned outputs (`reliability_report_v2.json`, ledger files,
+`conventional_comparison.json`).
+
+### 15.1 Defects and corrections
+
+| # | Defect (verified in source) | Correction | Decision |
+|---|---|---|---|
+| 1 | `warnings.warning_blocks_for_scenario` returned `t_idx[i-K+1]` (run start) as the warning time | `WarningEvent` with `excursion_start_block` / `persistence_satisfied_block` / `emission_block`; emission = block where the K-th observation arrived | D-049 |
+| 2 | `sustained_until_onset` decided which emitted alerts survived, using future onset/scenario end | Moved to `retrospective_sustained_retention` (classification only, never deletion); operational ledger keeps every emission | D-049 |
+| 3 | `ACTIVE_ATTACK_CONFIRMED` required only sustained forecast probability | Requires an independent `confirmation_evidence` mask sustained for `confirmation_evidence_persistence` blocks; probability alone yields the warning state labelled "unconfirmed" | D-050 |
+| 4 | "false-alarm episodes per 1000 s" computed from affected-SCENARIO counts | Episode-based accounting via `alert_episodes_from_trace` / `summarize_alert_burden` | D-051 |
+| 5 | warning occupancy computed from first-to-last marker span | Per-block alert-state occupancy from the state timeline | D-051 |
+
+### 15.2 Invalidated v1 metrics (superseded, not deleted)
+
+The following quantities in `reliability_report.json` (v1) are invalidated by the
+repair. The v1 file is preserved unchanged as historical evidence; all new
+measurements appear only in the v2 outputs.
+
+1. **All v1 warning timestamps and derived lead times.** Every v1 emission time
+   was the first block of the qualifying run rather than the block at which the
+   K-th observation arrived: for K=3 each v1 warning was 2 blocks (0.02 s) earlier
+   than the causally correct emission. All v1 lead-time values, horizon-valid
+   classifications, and median-lead summaries computed from `warning_blocks` are
+   affected by this exact 2-block offset.
+2. **`false_alarm_episodes_per_1000_simulated_seconds` (v1).** Computed from the
+   number of affected scenarios; replaced by episode-count-based rates.
+3. **`warning_load_fraction` (v1).** Computed from the first-to-last firing span;
+   replaced by true state occupancy.
+4. **`sustained_until_onset`-filtered horizon-valid rates (v1).** v1 classified
+   only retention-filtered events; v2 classifies every emitted event
+   (operational view). The two views answer different questions and their numbers
+   differ by construction; neither is "the" correct number for both purposes.
+5. **`operational_states.by_partition.scenarios_reaching_confirmation` (v1).**
+   The v1 confirmation counts derived from probability alone; under D-050 they
+   are not valid active-attack confirmations. The v2 evaluation supplies no
+   confirmation evidence (no validated detector existed at evaluation time) and
+   correctly reports zero confirmations.
+6. **The v1 prose claim that "0 of 53 non-end-reaching benign scenarios fired".**
+   This interpretation was wrong: the stored v1 JSON was correct (7 retained,
+   3 with the LONGEST run reaching the end), but 4 of the 7 retained scenarios
+   fired via a LATER end-reaching segment. See the corrected per-scenario audit
+   (`artifacts/reliability/evaluation/normal_scenario_audit.json`).
+
+### 15.3 Conventional detector repair
+
+The fixed-threshold detector remains degenerate (D-047). A causal sequential
+(CUSUM) detector with per-scenario warmup normalization and joint (k, h)
+calibration on validation benign data is now implemented (D-052) and evaluated
+fairly against the frozen forecaster on identical populations and time base
+(D-053, `scripts/evaluate_conventional_detector.py`,
+`artifacts/reliability/evaluation/conventional_comparison.json`).
+
+The comparison separates prediction (forecast before onset), early detection
+(during attacker preparation, which for this simulator's gradual attacks IS the
+pre-onset ramp), and active-attack detection (at/after the configured onset).
+Neither system is claimed to dominate; the measured trade-offs are reported with
+scenario-level Wilson intervals and matched false-alert budgets where reachable.

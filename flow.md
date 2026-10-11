@@ -5,30 +5,146 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
-Metric-integrity & telemetry-robustness workstream (2026-10-11). Three defects
-established by inspection and measurement, all corrected in measurement (the
-frozen Phase 4/5 datasets and artifacts are UNCHANGED):
+Causal warning repair (2026-10-12). An independent source audit confirmed five
+defects; all are corrected in source with independent acceptance tests
+(D-049..D-051). The frozen datasets, model artifacts and v1 evaluation reports
+are UNCHANGED; corrected results are written as separately versioned outputs.
 
-1. **Time units** — the simulator time base (`BLOCK_MS = 10.0`, i.e. 0.01 s/block)
-   was correct in code; Phase 5 *report prose* used 0.1 s/block, inflating every
-   reported lead-time by 10x. Single authority now `src/quantumattack/temporal_units.py` (D-039).
-2. **Horizon validity** — warnings with lead > H were credited as H-forecasts.
-   29 of 79 anticipatory warnings (37%) exceeded their horizon. Now classified
-   into `horizon_valid_forecast` / `extended_pre_onset_alert` / `onset_detection` /
-   `post_onset_confirmation` (D-040).
-3. **Noise units** — the "robustness cliff at sigma>=0.02" was an artifact of
-   absolute noise on features spanning ~17 orders of magnitude. Re-measured in
-   train-sigma units the degradation is gradual (0.896 -> 0.549) (D-042).
+1. **Backdated warning timestamps** — `warnings.py` returned the first block of
+   the qualifying K-run as the warning time. Now the canonical `WarningEvent`
+   distinguishes `excursion_start_block`, `persistence_satisfied_block` and
+   `emission_block`, and every evaluation consumes emission time (D-049).
+2. **Future-dependent alert deletion** — `sustained_until_onset` decided which
+   emitted alerts survived. It is now a retrospective retention view
+   (`retrospective_sustained_retention`) that classifies but never removes
+   operational events (D-049).
+3. **Forecast-only attack confirmation** — `ACTIVE_ATTACK_CONFIRMED` required
+   only sustained probability. It now requires an independent
+   `confirmation_evidence` mask sustained for `confirmation_evidence_persistence`
+   blocks; high probability alone stays `PRE_ATTACK_WARNING` (D-050).
+4. **Episode-count accounting** — false-alarm "episodes per 1000 s" was computed
+   from affected-scenario counts. Now from emitted alert episodes via
+   `alert_episodes_from_trace` (D-051).
+5. **Warning-load accounting** — occupancy was the first-to-last marker span.
+   Now per-block alert-state occupancy in `summarize_alert_burden` (D-051).
 
-Also: Wilson intervals replace degenerate bootstrap event-rate CIs (D-041);
-NORMAL false alarms root-caused to sustained benign drift (D-043); frozen
-probabilities found miscalibrated (ECE 0.191) and corrected by validation-fit
-Platt scaling (D-044).
+Previous workstream (2026-10-11), preserved: time-unit correction (D-039);
+horizon-valid attribution (D-040); Wilson intervals (D-041); noise units (D-042);
+false-alarm root cause (D-043); calibration (D-044); operational states (D-045);
+slow-ramp gradient limit (D-046); degenerate conventional baseline (D-047);
+`liblinear` reproducibility pin (D-048).
 
-Protocol: `docs/reliability-evaluation-protocol.md` (frozen v1).
-Evidence: `docs/reliability-research-report.md`.
+Protocol: `docs/reliability-evaluation-protocol.md` (frozen v1);
+causal repair evidence: `tests/test_causal_warning_semantics.py`.
+Evidence: `docs/reliability-research-report.md` (v1, superseded in part by the
+v2 evaluation outputs; see `artifacts/reliability/evaluation/`).
 
-## 0b. Prior status (preserved research record)
+## 0c. Causal warning event flow (VERIFIED 2026-10-12)
+
+```text
+Per-block forecast inference (frozen logistic, unchanged)
+    p_attack_future_h{H}[t]  +  block_index[t]
+        ↓
+ONLINE alert generation                         [warnings.warning_events_for_scenario]
+    WHY: causal emission; reads ONLY probability + block index (never onset)
+    scans t: run = consecutive p >= prob_threshold
+    on run == persistence_k:
+        excursion_start_block      = t_idx[t - K + 1]      (metadata)
+        persistence_satisfied_block = t_idx[t]             (evidence complete)
+        emission_block             = t_idx[t] + processing_delay_blocks
+        cooldown_until             = emission_block + cooldown_blocks
+        -> WarningEvent appended to the operational ledger (never removed)
+        ↓
+ONLINE operational state machine                [operational_states.operational_state_series]
+    WHY: operator-facing states with sticky alarms and recovery
+    inputs: probability, telemetry_valid, telemetry_stale,
+            confirmation_evidence (independent active-attack evidence)
+    transitions: NORMAL -> ELEVATED -> PRE_ATTACK_WARNING (K consecutive)
+                 PRE_ATTACK_WARNING -> ACTIVE_ATTACK_CONFIRMED
+                     requires confirmation_evidence sustained for
+                     confirmation_evidence_persistence blocks  (D-050)
+                 alarm states sticky; cleared by recovery_blocks below threshold
+                 DEGRADED_TELEMETRY on missing/stale/invalid telemetry;
+                 ABSTAINING until reacquire_blocks fresh blocks
+        ↓
+Episode extraction                               [operational_states.alert_episodes_from_trace]
+    WHY: one episode per enter/exit of an alarm state; sticky alarms are not
+         fragmented by repeated threshold crossings
+        ↓
+RETROSPECTIVE attribution (offline, ground truth allowed)
+    ├── forecast_horizons.classify_warning_outcome(emission_block, onset, H, grace)
+    │       -> horizon_valid_forecast | extended_pre_onset_alert |
+    │          onset_detection | post_onset_confirmation | no_warning
+    ├── warnings.retrospective_sustained_retention(events, df, H, policy)
+    │       -> per-event retained: bool (classification only; no deletion)
+    └── operational_states.summarize_alert_burden(traces)
+            -> n_episodes, episodes_per_1000_seconds, occupancy_fraction,
+               median_episode_seconds (denominators from actual durations)
+        ↓
+artifacts/reliability/evaluation/
+    reliability_report_v2.json   (corrected; v1 preserved)
+    alert_event_ledger.json      (one row per emitted episode)
+    scenario_ledger.json         (one row per evaluated scenario)
+```
+
+Failure handling: non-finite or out-of-range probabilities and missing/stale
+telemetry force `DEGRADED_TELEMETRY` (never a silent NORMAL); after an outage the
+machine abstains for `reacquire_blocks` before resuming; invalid configuration
+(persistence < 1, negative delay, non-contiguous block index) raises `ValueError`.
+
+Timing guarantees: every timestamp above is a block index; physical time is
+derived only through `temporal_units.blocks_to_seconds` (D-039).
+
+## 0d. Conventional sequential detector flow (VERIFIED 2026-10-12)
+
+```text
+Raw telemetry indicators (excess_noise, transmittance, lo_power, det_gain,
+skr_estimate, saturation_frac, background)  +  block_index
+    ↓
+Per-scenario causal warmup baseline         [conventional._per_scenario_baseline]
+    WHY: each scenario is compared against its own established baseline; the
+         global-reference variant was measured to fail (benign per-scenario
+         offsets accumulate, D-052). Startup contract: the first
+         `warmup_blocks` (200) blocks produce NO detector output.
+    mu_i, sigma_i from the scenario's first warmup_blocks finite samples
+        ↓
+One-sided CUSUM per indicator                [conventional.cusum_statistic]
+    z_t = (x_t - mu_i) / sigma_i
+    deviate = z_t if direction>0 else -z_t; clip to +/- deviate_cap (Huber)
+    S_t = max(0, S_{t-1} + deviate - k_drift)     per indicator
+    S_max_t = max over indicators
+    missing/invalid values: do not update S; > max_missing_run consecutive
+    unusable blocks reset S to 0 (cold start, documented)
+        ↓
+Alert emission                                [conventional.detect_warnings_cusum]
+    WHY: same causal emission rule as the forecast path (D-049)
+    persistence_k consecutive usable blocks with S_max >= h_threshold
+    -> alert emitted at the persistence-satisfaction block; cooldown suppresses
+       re-arming; run continues accumulating while suppressed
+        ↓
+Calibration (offline, VALIDATION only)       [conventional.calibrate_cusum_threshold]
+    reference stats: Phase-4 TRAIN benign; (k, h): Phase-4 VALIDATION benign
+    scan k ascending, h ascending; first pair with scenario FPR <= target_fpr
+    (declared budget; achieved FPR recorded; missed budget reported honestly)
+        ↓
+Forecast-vs-conventional fair comparison     [scripts/evaluate_conventional_detector.py]
+    same partitions, same onsets, emission timestamps for both systems
+    outcomes separated: horizon-valid forecast / extended pre-onset alert /
+    at-onset / post-onset / no warning (forecaster) vs pre-onset / at-onset /
+    post-onset / no detection (detector)
+    matched false-alert budget: forecaster threshold swept to the closest
+    G1-benign FPR; sweep reported transparently (not used to select the detector)
+        ↓
+artifacts/reliability/evaluation/conventional_comparison.json
+```
+
+Failure handling: prolonged missing telemetry resets the accumulator and is
+never treated as evidence; the detector has NO access to attack onset or any
+future data (prefix-invariance tested); an attack active during the warmup
+contamination window is a documented silent-failure mode evaluated in
+`tests/test_conventional_detector.py`.
+
+## 0e. Prior status (preserved research record)
 
 Phase 5 COMPLETE (2026-10-09): Independent Generalization, Simulator Validity & Forecasting Robustness.
 Pre-registered protocol (docs/phase5-protocol.md v1) with 160 scenarios across 4 disjoint generalization partitions:
