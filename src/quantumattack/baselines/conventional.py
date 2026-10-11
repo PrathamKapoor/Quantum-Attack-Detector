@@ -47,7 +47,7 @@ class ThresholdPolicy:
     cooldown_blocks: int = 50       # suppress re-arming after a warning
     sigma_multiplier: float = 5.0   # 5σ convention (QKD parameter-estimation analogue)
     min_quantile: float = 0.995     # empirical-percentile alternative
-    threshold_method: str = "empirical_quantile"  # | "normal_sigma" | "fixed"
+    threshold_method: str = "normalized_sigma"  # | "empirical_quantile" | "normal_sigma" | "fixed"
     fixed_thresholds: dict[str, float] = field(default_factory=lambda: {
         "saturation_frac": 0.01,
     })
@@ -57,7 +57,7 @@ class ThresholdPolicy:
             raise ValueError(f"persistence_k must be >= 1: {self.persistence_k}")
         if self.cooldown_blocks < 0:
             raise ValueError("cooldown_blocks cannot be negative")
-        if self.threshold_method not in ("empirical_quantile", "normal_sigma", "fixed"):
+        if self.threshold_method not in ("normalized_sigma", "empirical_quantile", "normal_sigma", "fixed"):
             raise ValueError(f"unknown threshold_method: {self.threshold_method!r}")
         if not (0.5 < self.min_quantile < 1.0):
             raise ValueError(f"min_quantile must be in (0.5, 1): {self.min_quantile}")
@@ -108,6 +108,14 @@ def calibrate_thresholds(
             else:
                 thr = float(np.quantile(x, 1.0 - policy.min_quantile))
             method_used = "empirical_quantile"
+        elif policy.threshold_method == "normalized_sigma":
+            mu, sigma = float(x.mean()), float(x.std())
+            # Normalized z-score threshold: for direction > 0 (abnormal high),
+            # threshold is above mean by multiplier*std; for direction < 0,
+            # below mean by multiplier*std. This transfers better across
+            # distributions with different absolute means.
+            thr = mu + direction * policy.sigma_multiplier * sigma
+            method_used = "normalized_sigma"
         else:  # normal_sigma
             mu, sigma = float(x.mean()), float(x.std())
             thr = mu + direction * policy.sigma_multiplier * sigma
