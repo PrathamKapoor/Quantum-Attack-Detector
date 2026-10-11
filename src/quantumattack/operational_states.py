@@ -47,8 +47,9 @@ import numpy as np
 __all__ = [
     "NORMAL", "ELEVATED", "PRE_ATTACK_WARNING", "ACTIVE_ATTACK_CONFIRMED",
     "DEGRADED_TELEMETRY", "ABSTAINING", "RECOVERY",
-    "OPERATIONAL_STATES",
+    "OPERATIONAL_STATES", "ALERT_STATES",
     "OperationalPolicy", "StateTransition", "OperationalTrace",
+    "AlertEpisode", "alert_episodes_from_trace", "summarize_alert_burden",
 ]
 
 # --- operational states -----------------------------------------------------
@@ -82,8 +83,13 @@ class OperationalPolicy:
     recovery_blocks: int = 25         # blocks below warn_threshold to recover
     reacquire_blocks: int = 10        # fresh blocks required after an outage
     max_stale_blocks: int = 1         # telemetry older than this => degraded
-    confirm_probability: float = 0.9  # sustained high probability => ACTIVE
+    confirm_probability: float = 0.9  # sustained high probability (risk evidence)
     confirm_persistence: int = 10     # consecutive blocks above confirm_probability
+    # ACTIVE_ATTACK_CONFIRMED requires INDEPENDENT active-attack evidence
+    # (D-050). A sustained forecast probability is a statement about possible
+    # future onset and is NOT evidence that an attack is currently active.
+    confirmation_evidence_persistence: int = 3  # consecutive evidence blocks required
+    require_confirmation_evidence: bool = True  # False restores legacy behaviour
 
     def validate(self) -> None:
         if not (0.0 < self.elevated_threshold <= self.warn_threshold < 1.0):
@@ -100,6 +106,8 @@ class OperationalPolicy:
             raise ValueError("confirm_probability must be in (0,1)")
         if not (self.confirm_probability >= self.warn_threshold):
             raise ValueError("confirm_probability must be >= warn_threshold")
+        if self.confirmation_evidence_persistence < 1:
+            raise ValueError("confirmation_evidence_persistence must be >= 1")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -138,11 +146,140 @@ class OperationalTrace:
         return None
 
 
+#: States that constitute an active operational alert.
+ALERT_STATES = (PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED)
+
+
+@dataclass(frozen=True)
+class AlertEpisode:
+    """One continuous operational alert episode (state occupancy interval)."""
+
+    scenario_id: str
+    episode_id: int
+    enter_block: int
+    exit_block: int | None   # None = still active at the end of the observed span
+    peak_state: str
+
+    @property
+    def is_open(self) -> bool:
+        return self.exit_block is None
+
+    def duration_blocks(self, n_blocks: int) -> int:
+        end = self.exit_block if self.exit_block is not None else n_blocks
+        return int(end - self.enter_block)
+
+    def to_dict(self) -> dict:
+        return {"scenario_id": self.scenario_id, "episode_id": self.episode_id,
+                "enter_block": self.enter_block, "exit_block": self.exit_block,
+                "peak_state": self.peak_state, "is_open": self.is_open}
+
+
+def alert_episodes_from_trace(
+    trace: OperationalTrace,
+    scenario_id: str = "",
+) -> list[AlertEpisode]:
+    """Extract distinct alert EPISODES from an operational state timeline.
+
+    An episode begins when the state machine ENTERS an alert state
+    (``ALERT_STATES``) from a non-alert state and ends when it exits to a
+    non-alert state. Repeated threshold crossings while the alarm remains active
+    (sticky) do NOT create new episodes; a new episode requires an actual
+    exit-and-re-enter (i.e. the documented recovery/rearm cycle).
+    """
+    episodes: list[AlertEpisode] = []
+    in_alert = False
+    enter = -1
+    peak = PRE_ATTACK_WARNING
+    eid = 0
+    for i, s in enumerate(trace.states):
+        is_alert = s in ALERT_STATES
+        if is_alert and not in_alert:
+            in_alert = True
+            enter = i
+            peak = s
+        elif is_alert and in_alert:
+            if s == ACTIVE_ATTACK_CONFIRMED:
+                peak = ACTIVE_ATTACK_CONFIRMED
+        elif not is_alert and in_alert:
+            episodes.append(AlertEpisode(scenario_id, eid, enter, i, peak))
+            eid += 1
+            in_alert = False
+    if in_alert:
+        episodes.append(AlertEpisode(scenario_id, eid, enter, None, peak))
+    return episodes
+
+
+def summarize_alert_burden(
+    traces: dict[str, OperationalTrace],
+    block_seconds: float = 0.01,
+    benign_classes: dict[str, str] | None = None,
+) -> dict:
+    """Operational alert burden from ACTUAL episodes and state occupancy.
+
+    Replaces scenario-count-as-episode-rate accounting (D-051). All quantities
+    are computed from emitted episode intervals and the per-block state timeline:
+
+      n_scenarios               independent scenarios in the ledger
+      n_scenarios_with_alerts   scenarios with >= 1 emitted episode
+      n_episodes                total distinct emitted alert episodes
+      episodes_per_1000_seconds n_episodes / simulated_seconds * 1000
+      occupancy_fraction        alert-state blocks / observed blocks
+      median_episode_seconds    median closed-episode duration (open episodes are
+                                measured to the end of their observed span and
+                                flagged via n_open_episodes)
+    """
+    n_scenarios = len(traces)
+    scenarios_with_alerts = 0
+    all_episodes: list[AlertEpisode] = []
+    alert_blocks = 0
+    total_blocks = 0
+    per_scenario: dict[str, dict] = {}
+    for sid, trace in traces.items():
+        eps = alert_episodes_from_trace(trace, sid)
+        n_blocks = len(trace.states)
+        occ = sum(1 for s in trace.states if s in ALERT_STATES)
+        total_blocks += n_blocks
+        alert_blocks += occ
+        if eps:
+            scenarios_with_alerts += 1
+        all_episodes.extend(eps)
+        per_scenario[sid] = {
+            "n_episodes": len(eps),
+            "alert_blocks": occ,
+            "observed_blocks": n_blocks,
+            "episodes": [e.to_dict() for e in eps],
+            "scenario_class": (benign_classes or {}).get(sid),
+        }
+    sim_seconds = total_blocks * block_seconds
+    durations_blocks = [e.duration_blocks(len(traces[e.scenario_id].states))
+                        for e in all_episodes]
+    closed = [e for e in all_episodes if not e.is_open]
+    closed_blocks = [e.duration_blocks(len(traces[e.scenario_id].states)) for e in closed]
+    return {
+        "n_scenarios": n_scenarios,
+        "n_scenarios_with_alerts": scenarios_with_alerts,
+        "n_episodes": len(all_episodes),
+        "n_open_episodes": sum(1 for e in all_episodes if e.is_open),
+        "episodes_per_1000_seconds": (len(all_episodes) / sim_seconds * 1000.0)
+        if sim_seconds > 0 else None,
+        "occupancy_fraction": (alert_blocks / total_blocks) if total_blocks else None,
+        "alert_blocks": alert_blocks,
+        "observed_blocks": total_blocks,
+        "simulated_seconds": sim_seconds,
+        "median_episode_seconds": (float(np.median(closed_blocks)) * block_seconds)
+        if closed_blocks else None,
+        "median_episode_seconds_including_open": (float(np.median(durations_blocks)) * block_seconds)
+        if durations_blocks else None,
+        "per_scenario": per_scenario,
+    }
+
+
 def operational_state_series(
     probability: np.ndarray,
     telemetry_valid: np.ndarray | None = None,
     telemetry_stale: np.ndarray | None = None,
     policy: OperationalPolicy | None = None,
+    confirmation_evidence: np.ndarray | None = None,
 ) -> OperationalTrace:
     """Run the online state machine over one scenario's probability series.
 
@@ -160,6 +297,13 @@ def operational_state_series(
         ``policy.max_stale_blocks``. Stale data also degrades the state.
     policy:
         Operational policy; defaults mirror the frozen forecasting policy.
+    confirmation_evidence:
+        Optional boolean mask, True at blocks where INDEPENDENT active-attack
+        evidence exists (e.g. a validated conventional-detector detection signal
+        computed from current telemetry). ACTIVE_ATTACK_CONFIRMED requires
+        ``policy.confirmation_evidence_persistence`` consecutive evidence blocks
+        when ``policy.require_confirmation_evidence`` is True. A sustained
+        forecast probability alone can never confirm an active attack (D-050).
 
     Returns
     -------
@@ -185,6 +329,13 @@ def operational_state_series(
         telemetry_stale = np.zeros(n, dtype=bool)
     else:
         telemetry_stale = np.asarray(telemetry_stale, dtype=bool)
+    if confirmation_evidence is None:
+        evidence = np.zeros(n, dtype=bool)
+    else:
+        evidence = np.asarray(confirmation_evidence, dtype=bool)
+        if len(evidence) != n:
+            raise ValueError(
+                f"confirmation_evidence length {len(evidence)} != probability length {n}")
 
     states: list[str] = []
     transitions: list[StateTransition] = []
@@ -193,6 +344,7 @@ def operational_state_series(
     warn_run = 0        # consecutive blocks >= warn_threshold
     elev_run = 0        # consecutive blocks >= elevated_threshold
     conf_run = 0        # consecutive blocks >= confirm_probability
+    evidence_run = 0    # consecutive blocks with independent confirmation evidence
     below_run = 0       # consecutive blocks < warn_threshold (recovery)
     cooldown_until = -1
     valid_run = 0       # consecutive degraded blocks
@@ -210,7 +362,7 @@ def operational_state_series(
             reason = ("telemetry missing, stale, or probability non-finite/out-of-range "
                       "at this block; the system declines to assert a risk level")
             # Reset evidence counters: we have no usable current evidence.
-            warn_run = elev_run = conf_run = 0
+            warn_run = elev_run = conf_run = evidence_run = 0
             below_run = 0
             valid_run += 1
             valid_streak = 0
@@ -221,7 +373,7 @@ def operational_state_series(
             # After an outage the features that depend on trailing windows are not
             # yet trustworthy; abstain until a full window of fresh data exists.
             if recovering and valid_streak <= pol.reacquire_blocks:
-                warn_run = elev_run = conf_run = 0
+                warn_run = elev_run = conf_run = evidence_run = 0
                 below_run = 0
                 states.append(ABSTAINING)
                 if cur != ABSTAINING:
@@ -250,11 +402,38 @@ def operational_state_series(
                 conf_run += 1
             else:
                 conf_run = 0
+            if bool(evidence[i]):
+                evidence_run += 1
+            else:
+                evidence_run = 0
 
-            if conf_run >= pol.confirm_persistence:
+            risk_evidence = conf_run >= pol.confirm_persistence
+            active_evidence = evidence_run >= pol.confirmation_evidence_persistence
+            if pol.require_confirmation_evidence:
+                can_confirm = active_evidence
+            else:
+                can_confirm = risk_evidence or active_evidence
+            if can_confirm:
                 new = ACTIVE_ATTACK_CONFIRMED
-                reason = (f"probability sustained >= {pol.confirm_probability} for "
-                          f"{pol.confirm_persistence} blocks: active attack evidence")
+                if active_evidence:
+                    reason = (f"independent active-attack evidence sustained for "
+                              f"{pol.confirmation_evidence_persistence} blocks: "
+                              "attack confirmed")
+                else:
+                    reason = ("legacy mode: sustained risk probability treated as "
+                              "confirmation (require_confirmation_evidence=False)")
+            elif risk_evidence and not active_evidence:
+                # Forecast says 'attack likely within H' but no independent
+                # evidence that an attack is active. Stay in the warning state.
+                if cur in (PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED):
+                    new = cur if cur != ACTIVE_ATTACK_CONFIRMED else PRE_ATTACK_WARNING
+                    reason = ("risk probability sustained without independent "
+                              "active-attack evidence: unconfirmed")
+                else:
+                    new = PRE_ATTACK_WARNING
+                    reason = (f"probability >= {pol.confirm_probability} for "
+                              f"{pol.confirm_persistence} blocks without independent "
+                              "active-attack evidence: warning, not confirmed")
             elif cur in (ACTIVE_ATTACK_CONFIRMED, PRE_ATTACK_WARNING):
                 # Alarm states are STICKY: an operator alarm must not blink off
                 # while the underlying condition persists. It is cleared only by

@@ -23,6 +23,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -38,6 +39,13 @@ from quantumattack.baselines.logistic import (
 from quantumattack.baselines.splits import SplitConfig, split_scenarios
 from quantumattack.baselines.warnings import (
     WarningPolicy, warning_blocks_for_scenario, warning_time,
+    warning_events_for_scenario,
+)
+from quantumattack.operational_states import (
+    operational_state_series, OperationalPolicy,
+    alert_episodes_from_trace, summarize_alert_burden, ALERT_STATES,
+    PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED,
+    DEGRADED_TELEMETRY, ABSTAINING,
 )
 from quantumattack.forecast_horizons import (
     classify_warning_outcome, HORIZON_VALID, EXTENDED_ALERT, ONSET_DETECTION,
@@ -85,14 +93,20 @@ def _scenario_pred_frame(sid, df_feat, probs, meta):
     return pd.DataFrame(row)
 
 
-def evaluate_scenario_horizons(df_pred, wp, horizon):
-    """Classify the FIRST warning into the three-way outcome taxonomy."""
+def evaluate_scenario_horizons(df_pred, policy, horizon):
+    """Classify the FIRST EMITTED event into the outcome taxonomy.
+
+    Uses alert-emission timestamps (causal). ``policy`` controls whether the
+    retrospective sustained-retention filter is applied; the operational view
+    passes a policy with ``sustained_until_onset=False`` so that every emitted
+    event is classified (D-049/D-051).
+    """
     onset = int(df_pred["attack_onset"].iloc[0])
-    fires = warning_blocks_for_scenario(df_pred, horizon, wp,
-                                        sustained_until_onset=wp.sustained_until_onset)
+    fires = warning_blocks_for_scenario(df_pred, horizon, policy,
+                                        sustained_until_onset=policy.sustained_until_onset)
     wt = warning_time(fires)
     outcome = classify_warning_outcome(
-        None if wt is None else int(wt), onset, horizon, grace_blocks=wp.grace_blocks)
+        None if wt is None else int(wt), onset, horizon, grace_blocks=policy.grace_blocks)
     return outcome, len(fires)
 
 
@@ -116,6 +130,11 @@ def main():
     mc = ModelConfig(feature_group=args.feature_group)
     wp = WarningPolicy(prob_threshold=0.5, persistence_k=3, cooldown_blocks=50,
                        grace_blocks=5, sustained_until_onset=True)
+    # Operational (causal) policy: identical thresholds WITHOUT the retrospective
+    # retention flag. All emitted events are classified for the operational view.
+    wp_operational = WarningPolicy(prob_threshold=0.5, persistence_k=3,
+                                   cooldown_blocks=50, grace_blocks=5,
+                                   sustained_until_onset=False)
 
     # ------------------------------------------------------------------
     # Fit frozen Phase 4 baseline (unchanged configuration)
@@ -196,7 +215,7 @@ def main():
                 df_pred = pred_frames[sid]
                 atype = str(df_pred["attack_type"].iloc[0])
                 sclass = str(df_pred["scenario_class"].iloc[0])
-                outcome, n_fires = evaluate_scenario_horizons(df_pred, wp, h)
+                outcome, n_fires = evaluate_scenario_horizons(df_pred, wp_operational, h)
                 if sclass == "ATTACK":
                     d = by_type.setdefault(atype, [])
                     d.append((outcome, n_fires))
@@ -340,9 +359,22 @@ def main():
         return np.array(ys), np.array(ps)
 
     def eval_noise(spec):
-        ys, ps = eval_on(model100, g1_sids, feature_cols,
-                         lambda X: apply_perturbation(X, spec, fscale))
-        return classification_metrics(ys, ps)
+        """Evaluate one perturbation condition with a PER-SCENARIO deterministic seed.
+
+        The perturbation seed for scenario i is `spec.seed + i`, so each scenario's
+        noise draw is independent of iteration order and of how many scenarios are
+        processed before it. Without this the RNG stream is consumed sequentially
+        and any change in an earlier scenario cascades, which was the residual
+        source of cross-run variation after the solver fix (D-048).
+        """
+        ys, ps = [], []
+        for i, sid in enumerate(g1_sids):
+            scen_spec = replace(spec, seed=spec.seed + i)
+            y_i, p_i = eval_on(model100, [sid], feature_cols,
+                               lambda X: apply_perturbation(X, scen_spec, fscale))
+            ys.append(y_i)
+            ps.append(p_i)
+        return classification_metrics(np.concatenate(ys), np.concatenate(ps))
 
     noise = {}
     for sigma in (0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0):
@@ -413,49 +445,75 @@ def main():
 
     # ------------------------------------------------------------------
     # 6. False-alarm operational burden: NORMAL vs BENIGN_DRIFT
+    #    (episode-based and occupancy-based accounting; repair D-051)
     # ------------------------------------------------------------------
-    print("[6/6] false-alarm burden ...", flush=True)
+    print("[6/6] false-alarm burden (episode + occupancy accounting) ...", flush=True)
+    opol = OperationalPolicy()   # mirrors the evaluation warning-policy thresholds
+    event_ledger: list[dict] = []
+    scenario_ledger: list[dict] = []
     burden = {}
-    for part in ("g1", "g2", "g3"):
+    for part in ("g1", "g2", "g3", "g4"):
         sids = sids_in(part)
-        for h in (100,):
-            per_class = {}
-            for sid in sids:
-                df_pred = pred_frames[sid]
-                sclass = str(df_pred["scenario_class"].iloc[0])
-                onset = int(df_pred["attack_onset"].iloc[0])
-                if onset >= 0:
-                    continue  # only benign
-                fires = warning_blocks_for_scenario(df_pred, h, wp,
-                                                     sustained_until_onset=wp.sustained_until_onset)
-                n_blocks = len(df_pred)
-                dur = (max(fires) - min(fires) + 1) if fires else 0
-                per_class.setdefault(sclass, []).append({
-                    "n_warnings": len(fires), "duration_blocks": dur,
-                    "first_fire": fires[0] if fires else None, "n_blocks": n_blocks})
-            for sclass, rows in sorted(per_class.items()):
-                n = len(rows)
-                fa = sum(1 for r in rows if r["n_warnings"] > 0)
-                warn_time = sum(r["duration_blocks"] for r in rows)
-                total_time = sum(r["n_blocks"] for r in rows)
-                # Simulated operating time (1 block = 10 ms = 0.01 s).
-                sim_seconds = total_time * 0.01
-                burden.setdefault(part, {})[sclass] = {
-                    "n_scenarios": n,
-                    "false_alarm_scenario_rate": _ci_rate(fa, n),
-                    "n_false_alarm_scenarios": fa,
-                    "mean_warnings_per_scenario": float(np.mean([r["n_warnings"] for r in rows])),
-                    # Reported per 1000 s of SIMULATED operation. Normalising per
-                    # simulated hour is not meaningful: each scenario is only 20 s
-                    # of operation, so an hourly rate would extrapolate ~180x beyond
-                    # the simulated window and its uncertainty would be enormous.
-                    "false_alarm_episodes_per_1000_simulated_seconds":
-                        (fa / sim_seconds * 1000.0) if sim_seconds > 0 else None,
-                    "warning_load_fraction": (warn_time / total_time) if total_time else None,
-                    "simulated_operating_seconds": sim_seconds,
-                    "scenario_duration_seconds": blocks_to_seconds(rows[0]["n_blocks"]),
-                }
+        per_class_traces: dict[str, dict] = {}
+        per_class_meta: dict[str, dict] = {}
+        for sid in sids:
+            df_pred = pred_frames[sid]
+            sclass = str(df_pred["scenario_class"].iloc[0])
+            onset = int(df_pred["attack_onset"].iloc[0])
+            pv = df_pred["p_attack_future_h100"].to_numpy(float)
+            # Operational state timeline: confirmation evidence is NOT supplied in
+            # this evaluation (no validated detector exists yet -- D-047), so the
+            # machine can warn but never (mis)confirm.
+            trace = operational_state_series(pv, policy=opol)
+            episodes = alert_episodes_from_trace(trace, sid)
+            for e in episodes:
+                event_ledger.append({
+                    "partition": part, "scenario_id": sid,
+                    "scenario_class": sclass, "scenario_is_benign": onset < 0,
+                    **e.to_dict(),
+                    "duration_blocks": e.duration_blocks(len(trace.states)),
+                    "duration_seconds": blocks_to_seconds(e.duration_blocks(len(trace.states))),
+                })
+            scenario_ledger.append({
+                "partition": part, "scenario_id": sid, "scenario_class": sclass,
+                "attack_onset": onset, "n_blocks": len(df_pred),
+                "duration_seconds": blocks_to_seconds(len(df_pred)),
+                "n_episodes": len(episodes),
+                "alert_blocks": sum(1 for s in trace.states if s in ALERT_STATES),
+                "entered_warning": any(s in ALERT_STATES for s in trace.states),
+            })
+            if onset < 0:
+                per_class_traces.setdefault(sclass, {})[sid] = trace
+                per_class_meta.setdefault(sclass, {})[sid] = part
+        part_burden = {}
+        for sclass, traces in sorted(per_class_traces.items()):
+            summary = summarize_alert_burden(traces)
+            n = summary["n_scenarios"]
+            fa = summary["n_scenarios_with_alerts"]
+            sim_seconds = summary["simulated_seconds"]
+            part_burden[sclass] = {
+                "n_scenarios": n,
+                # legacy (v1) scenario-level rate, kept for continuity
+                "false_alarm_scenario_rate": _ci_rate(fa, n),
+                "n_false_alarm_scenarios": fa,
+                # event-level accounting (repair D-051)
+                "n_alert_episodes": summary["n_episodes"],
+                "n_open_episodes": summary["n_open_episodes"],
+                "episodes_per_1000_simulated_seconds": summary["episodes_per_1000_seconds"],
+                "occupancy_fraction": summary["occupancy_fraction"],
+                "alert_blocks": summary["alert_blocks"],
+                "observed_blocks": summary["observed_blocks"],
+                "median_episode_seconds": summary["median_episode_seconds"],
+                "simulated_operating_seconds": sim_seconds,
+                "scenario_duration_seconds": blocks_to_seconds(
+                    len(next(iter(traces.values())).states)),
+                "per_scenario": summary["per_scenario"],
+            }
+        # legacy compatibility field: previous shape keyed by class only
+        burden.setdefault(part, {}).update(part_burden)
     report["false_alarm_burden"] = burden
+    report["alert_event_ledger"] = event_ledger
+    report["scenario_ledger"] = scenario_ledger
 
     # ------------------------------------------------------------------
     # 7. False-alarm root cause: does the above-threshold run reach the end?
@@ -506,10 +564,12 @@ def main():
             "all_run_to_end_fired": all(x["n_fires"] > 0 for x in reach) if reach else None,
             "fired_with_run_reaching_end": sum(1 for x in fired if x["run_reaches_scenario_end"]),
             "interpretation": (
-                "sustained_until_onset requires p>=threshold to hold until scenario "
-                "end for benign runs; a benign trajectory whose probability stays "
-                "elevated for hundreds of blocks is indistinguishable from a "
-                "sustained precursor under this policy"
+                "RETROSPECTIVE view: sustained_until_onset keeps only occurrences "
+                "whose probability stays above threshold until scenario end "
+                "(benign) or onset (attack). It is a research retention filter and "
+                "does NOT describe the operational false-alarm burden, which is "
+                "reported in false_alarm_burden from emitted episodes and state "
+                "occupancy (D-051)"
             ),
             "per_scenario": rows_r,
         }
@@ -576,11 +636,9 @@ def main():
     # 9. Operational state machine behaviour on real scenarios
     # ------------------------------------------------------------------
     print("[9/9] operational state machine ...", flush=True)
-    from quantumattack.operational_states import (
-        operational_state_series, OperationalPolicy, DEGRADED_TELEMETRY,
-        ABSTAINING, PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED,
-    )
-    opol = OperationalPolicy()
+    # (operational_state_series / OperationalPolicy / state names are imported at
+    # module level above; a second local import would shadow them for the whole
+    # function and break the earlier section-6 use of OperationalPolicy.)
     ops = {}
     for part in ("g1", "g2", "g3", "g4"):
         counts = {}
@@ -638,14 +696,66 @@ def main():
         "policy": opol.to_dict(),
         "by_partition": ops,
         "under_induced_missing_telemetry": ops_degraded,
-        "note": ("ACTIVE_ATTACK_CONFIRMED is a post-onset detection state reached from "
-                 "sustained evidence; it is distinct from any forecast. Degraded/abstain "
-                 "blocks are NOT counted as successful negatives."),
+        "confirmation_evidence_supplied": False,
+        "note": ("ACTIVE_ATTACK_CONFIRMED requires independent active-attack evidence "
+                 "(confirmation_evidence mask); no validated detector evidence exists yet "
+                 "(D-047), so this evaluation supplies none and the machine cannot confirm "
+                 "(D-050). Degraded/abstain blocks are NOT counted as successful negatives."),
     }
 
-    out_file = out_dir / "reliability_report.json"
+    # ------------------------------------------------------------------
+    # 10. Conventional-detector baseline integrity (D-047)
+    # ------------------------------------------------------------------
+    print("[10/10] conventional baseline integrity ...", flush=True)
+    from quantumattack.baselines.conventional import (
+        ThresholdPolicy, calibrate_thresholds, detect_warnings, violating_blocks,
+    )
+    tp = ThresholdPolicy()
+    val_ids = set(split4.val)
+    cal_frames = [pd.read_parquet(Path(args.phase4_features) / f"{s['scenario_id']}.parquet")
+                  for s in m4["scenarios"]
+                  if s["scenario_id"] in val_ids and s["scenario_class"] == "NORMAL"]
+    conv_cal = calibrate_thresholds(pd.concat(cal_frames, ignore_index=True), tp)
+
+    conv_fa = 0
+    n_benign = 0
+    conv_per_indicator = {}
+    for sid in sids_in("g1"):
+        if int(pred_frames[sid]["attack_onset"].iloc[0]) >= 0:
+            continue
+        df = eval_frames[sid]
+        n_benign += 1
+        det = detect_warnings(df, conv_cal, tp)
+        if det["warning_blocks"]:
+            conv_fa += 1
+    # per-indicator violation rate explains WHY the baseline is degenerate
+    sample_sid = sids_in("g1")[0]
+    if int(pred_frames[sample_sid]["attack_onset"].iloc[0]) < 0:
+        vb = violating_blocks(eval_frames[sample_sid], conv_cal)
+        for c in vb.columns:
+            conv_per_indicator[c] = float(vb[c].mean())
+
+    report["conventional_baseline"] = {
+        "calibration_split": "Phase 4 validation benign",
+        "n_reference_scenarios": len(cal_frames),
+        "g1_benign_false_alarm_rate": wilson_interval(conv_fa, n_benign).to_dict(),
+        "g1_benign_n": n_benign,
+        "thresholds": {k: float(v) for k, v in conv_cal.thresholds.items()},
+        "per_indicator_violation_rate_sample_scenario": conv_per_indicator,
+        "verdict": "DEGENERATE — no usable operating point; prior matched-budget "
+                   "comparisons against this baseline are INVALID (D-047)",
+    }
+
+    out_file = out_dir / "reliability_report_v2.json"
     out_file.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(f"\nWrote {out_file}")
+    # standalone machine-readable ledgers (causal event accounting)
+    (out_dir / "alert_event_ledger.json").write_text(
+        json.dumps(event_ledger, indent=2, default=str), encoding="utf-8")
+    (out_dir / "scenario_ledger.json").write_text(
+        json.dumps(scenario_ledger, indent=2, default=str), encoding="utf-8")
+    print(f"Wrote {out_dir / 'alert_event_ledger.json'} ({len(event_ledger)} episodes)")
+    print(f"Wrote {out_dir / 'scenario_ledger.json'} ({len(scenario_ledger)} scenarios)")
 
     # Console summary
     print("\n================ HORIZON-VALID FORECASTING (H=100) ================")

@@ -47,16 +47,29 @@ def test_warning_requires_persistence_not_single_spike():
     assert ACTIVE_ATTACK_CONFIRMED not in tr.states
 
 
-def test_sustained_high_probability_confirms_active_attack():
-    """A sudden attack is unpredictable BEFORE onset but must be confirmable
-    once evidence is sustained. Warning precedes confirmation."""
+def test_sustained_high_probability_warns_but_does_not_confirm_alone():
+    """A sustained forecast probability is evidence about possible future onset,
+    NOT evidence that an attack is active. Without independent confirmation
+    evidence the state machine must warn but must not enter
+    ACTIVE_ATTACK_CONFIRMED (D-050; acceptance test C)."""
     p = np.concatenate([np.full(100, 0.01), np.full(30, 0.95)])
     tr = operational_state_series(p)
     # warn at the K-th block above threshold (100 + 3 - 1 = 102)
     assert tr.first_entry(PRE_ATTACK_WARNING) == 102
-    # confirm after confirm_persistence consecutive blocks (100 + 10 - 1 = 109)
-    assert tr.first_entry(ACTIVE_ATTACK_CONFIRMED) == 109
-    assert tr.first_entry(PRE_ATTACK_WARNING) < tr.first_entry(ACTIVE_ATTACK_CONFIRMED)
+    assert ACTIVE_ATTACK_CONFIRMED not in tr.states
+
+
+def test_independent_evidence_confirms_active_attack():
+    """With independent active-attack evidence the machine confirms; the
+    confirmation timestamp is when the evidence persistence was satisfied."""
+    p = np.concatenate([np.full(100, 0.01), np.full(30, 0.95)])
+    ev = np.zeros(len(p), dtype=bool)
+    ev[110:125] = True   # independent evidence from block 110
+    tr = operational_state_series(p, confirmation_evidence=ev)
+    assert PRE_ATTACK_WARNING in tr.states
+    confirm_at = tr.first_entry(ACTIVE_ATTACK_CONFIRMED)
+    # default confirmation_evidence_persistence = 3 -> confirm at 112
+    assert confirm_at == 112
 
 
 def test_missing_telemetry_degrades_rather_than_reports_normal():
@@ -88,7 +101,8 @@ def test_degraded_telemetry_can_transition_to_abstaining():
     # persistence_k fresh blocks before it re-arms (this is intentional)
     assert tr.states[57] == NORMAL
     assert tr.states[57 + 3] == PRE_ATTACK_WARNING   # K=3 fresh blocks
-    assert tr.first_entry(ACTIVE_ATTACK_CONFIRMED) is not None
+    # probability alone never confirms; confirmation requires independent evidence
+    assert ACTIVE_ATTACK_CONFIRMED not in tr.states
 
 
 def test_stale_telemetry_degrades():

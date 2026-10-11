@@ -4,6 +4,28 @@
 Policy: P(attack within H) ≥ threshold for K consecutive prediction points →
 PRE-ATTACK WARNING. Threshold/persistence are configurable and MUST be selected
 on validation scenarios only (master prompt §29) — never on test.
+
+CAUSAL EMISSION SEMANTICS (repair, see decisions.md D-049)
+----------------------------------------------------------
+A warning episode distinguishes four distinct timestamps:
+
+  excursion_start_block       first block of the qualifying K-run crossing the
+                              threshold (recorded as metadata, NEVER as the
+                              operational emission time)
+  persistence_satisfied_block block at which the K-th required observation was
+                              actually received (the earliest block at which the
+                              persistence condition was known to be satisfied)
+  emission_block              the block at which the online system actually
+                              activated the alert = persistence_satisfied_block
+                              plus any modelled processing delay
+  resolution_block            the block at which the alarm state ended (recorded
+                              by the operational state machine / episode ledger)
+
+The ONLINE generator (`warning_events_for_scenario`) uses only the probability
+series and block indices. It has NO access to attack onset, scenario duration, or
+any future value. Retrospective analyses (`retrospective_sustained_retention`,
+`evaluate_scenario_warnings`) classify already-emitted events using ground truth
+and MUST NOT remove an emitted event from the operational ledger.
 """
 from __future__ import annotations
 
@@ -23,9 +45,11 @@ class WarningPolicy:
     persistence_k: int = 3          # K consecutive prediction points above threshold
     cooldown_blocks: int = 50       # suppress re-arming after a warning fires
     grace_blocks: int = 5           # warnings within <grace of onset are "immediate detection"
-    # Phase 3 (pre-declarable): warning must SUSTAIN above threshold until onset —
-    # transient spikes (warmup noise, drift blips) are not warnings. Uniform for all
-    # models; selected on validation only.
+    # RETROSPECTIVE research view (not an online policy): when True, the
+    # evaluation-level retention filter keeps only alerts whose probability
+    # stays above threshold until onset (attack runs) or scenario end (benign
+    # runs). It is applied by `retrospective_sustained_retention` and NEVER
+    # deletes an emitted event from the operational event ledger.
     sustained_until_onset: bool = False
 
     def validate(self) -> None:
@@ -40,59 +64,149 @@ class WarningPolicy:
         return asdict(self)
 
 
-def warning_blocks_for_scenario(
+@dataclass(frozen=True)
+class WarningEvent:
+    """One actually-emitted operational warning episode (canonical event model).
+
+    Emitted by the ONLINE generator. Contains no ground-truth information and no
+    future-dependent fields. Retrospective classification attaches to a copy of
+    this record; it never mutates or removes it.
+    """
+
+    scenario_id: str
+    horizon: int
+    event_id: int
+    excursion_start_block: int
+    persistence_satisfied_block: int
+    emission_block: int
+    config_hash: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def warning_events_for_scenario(
     df_scenario: pd.DataFrame,
     horizon: int,
     policy: WarningPolicy,
-    sustained_until_onset: bool = False,
-) -> list[int]:
-    """Apply the warning policy to one scenario's probability series.
+    processing_delay_blocks: int = 0,
+    scenario_id: str | None = None,
+) -> list[WarningEvent]:
+    """ONLINE alert generation for one scenario and horizon (causal).
 
-    Returns block indices where the warning FIRES (first block of each
-    K-consecutive run above threshold, after cooldown).
+    Consumes ONLY the scenario's probability column and block indices. The attack
+    onset column, if present, is never read — changing it cannot change the
+    returned events (prefix-invariance and onset-blindness are regression-tested).
 
-    sustained_until_onset (Phase 3 policy fix, pre-declarable): if True, a warning
-    counts only when the probability STAYS above threshold from the end of the
-    k-run until the attack onset (or scenario end for benign runs) — transient
-    spikes (warmup noise, drift blips) are not warnings. Applies uniformly to ALL
-    models and benign scenarios; not tuned on test.
+    For K consecutive above-threshold observations ending at index ``i``:
+      excursion_start       = t_idx[i - K + 1]
+      persistence_satisfied = t_idx[i]
+      emission              = t_idx[i] + processing_delay_blocks
+    The emission timestamp is the earliest block at which the persistence
+    condition was knowable; it is never backdated to the excursion start.
     """
     policy.validate()
+    if processing_delay_blocks < 0:
+        raise ValueError(f"processing_delay_blocks cannot be negative: {processing_delay_blocks}")
     col = f"p_attack_future_h{horizon}"
     if col not in df_scenario.columns:
         return []
+    sid = scenario_id if scenario_id is not None else (
+        str(df_scenario["scenario_id"].iloc[0]) if "scenario_id" in df_scenario.columns else "")
     p = df_scenario[col].to_numpy(dtype=float)
-    t_idx = df_scenario["block_index"].to_numpy()
-    above = p >= policy.prob_threshold
-    onset = int(df_scenario["attack_onset"].iloc[0]) if "attack_onset" in df_scenario.columns else -1
-    fires: list[int] = []
+    t_idx = df_scenario["block_index"].to_numpy(dtype=int)
+    n = len(p)
+    if n and (n > 1) and not np.all(np.diff(t_idx) == 1):
+        raise ValueError("block_index must be contiguous for causal event generation")
+
+    events: list[WarningEvent] = []
     cooldown_until = -1e9
     run = 0
-    for i in range(len(p)):
-        if above[i]:
+    event_id = 0
+    for i in range(n):
+        pi = p[i]
+        above_i = bool(np.isfinite(pi) and pi >= policy.prob_threshold)
+        if above_i:
             run += 1
         else:
             run = 0
         if run >= policy.persistence_k and t_idx[i] > cooldown_until:
-            first_of_run = t_idx[i - policy.persistence_k + 1]
-            if sustained_until_onset:
-                # sustained: p must stay above threshold from i until onset (attack
-                # already begun → sustain to scenario end) or end for benign runs
-                if onset >= 0:
-                    onset_pos = int(np.searchsorted(t_idx, onset))
-                    end_idx = min(len(p), onset_pos + 1)
-                else:
-                    end_idx = len(p)
-                if bool(above[i:end_idx].all()):
-                    fires.append(int(first_of_run))
-                    cooldown_until = t_idx[i] + policy.cooldown_blocks
-                    run = 0
-                # else: transient — not a warning; run keeps accumulating
-            else:
-                fires.append(int(first_of_run))
-                cooldown_until = t_idx[i] + policy.cooldown_blocks
-                run = 0
-    return fires
+            events.append(WarningEvent(
+                scenario_id=sid,
+                horizon=horizon,
+                event_id=event_id,
+                excursion_start_block=int(t_idx[i - policy.persistence_k + 1]),
+                persistence_satisfied_block=int(t_idx[i]),
+                emission_block=int(t_idx[i]) + int(processing_delay_blocks),
+                config_hash=f"thr={policy.prob_threshold};k={policy.persistence_k};cd={policy.cooldown_blocks}",
+            ))
+            event_id += 1
+            cooldown_until = t_idx[i] + policy.cooldown_blocks
+            run = 0
+    return events
+
+
+def retrospective_sustained_retention(
+    events: list[WarningEvent],
+    df_scenario: pd.DataFrame,
+    horizon: int,
+    policy: WarningPolicy,
+) -> dict[int, bool]:
+    """OFFLINE retention view: did each emitted event 'sustain' per the old rule?
+
+    Uses attack onset (or scenario end for benign runs) to decide whether the
+    probability stayed above threshold from the persistence-satisfaction block
+    until onset/scenario end. Returns a mapping ``event_id -> retained``.
+
+    This is a scientific classification of events that ALREADY happened. It does
+    not delete or rewrite any event; the operational ledger keeps every emission.
+    """
+    policy.validate()
+    col = f"p_attack_future_h{horizon}"
+    if col not in df_scenario.columns:
+        return {e.event_id: False for e in events}
+    p = df_scenario[col].to_numpy(dtype=float)
+    t_idx = df_scenario["block_index"].to_numpy(dtype=int)
+    above = np.array(
+        [bool(np.isfinite(x) and x >= policy.prob_threshold) for x in p], dtype=bool)
+    onset = int(df_scenario["attack_onset"].iloc[0]) if "attack_onset" in df_scenario.columns else -1
+    if onset >= 0:
+        onset_pos = int(np.searchsorted(t_idx, onset))
+        end_idx = min(len(p), onset_pos + 1)
+    else:
+        end_idx = len(p)
+    out: dict[int, bool] = {}
+    for e in events:
+        start_pos = int(np.searchsorted(t_idx, e.persistence_satisfied_block))
+        out[e.event_id] = bool(above[start_pos:end_idx].all())
+    return out
+
+
+def warning_blocks_for_scenario(
+    df_scenario: pd.DataFrame,
+    horizon: int,
+    policy: WarningPolicy,
+    sustained_until_onset: bool | None = None,
+) -> list[int]:
+    """Emission blocks (causal) for one scenario's probability series.
+
+    Returns the ALERT-EMISSION blocks of each K-consecutive run (the block at
+    which the K-th observation was received), after cooldown suppression.
+
+    sustained_until_onset: when True, restricts the returned list to events that
+    pass the retrospective sustained-retention filter (attack runs: sustain until
+    onset; benign runs: sustain until scenario end). This is a RETROSPECTIVE
+    research view — the operational event ledger produced by
+    `warning_events_for_scenario` always keeps every emitted event. When None,
+    falls back to ``policy.sustained_until_onset`` for backwards compatibility.
+    """
+    policy.validate()
+    events = warning_events_for_scenario(df_scenario, horizon, policy)
+    use_sustained = policy.sustained_until_onset if sustained_until_onset is None else sustained_until_onset
+    if use_sustained:
+        retention = retrospective_sustained_retention(events, df_scenario, horizon, policy)
+        events = [e for e in events if retention.get(e.event_id, False)]
+    return [int(e.emission_block) for e in events]
 
 
 def warning_time(warning_blocks: list[int]) -> float | None:
@@ -134,7 +248,13 @@ def warning_category(lead_blocks: float | None, grace_blocks: int) -> str:
 
 @dataclass
 class ScenarioWarningResult:
-    """Per-scenario warning outcome for one horizon."""
+    """Per-scenario warning outcome for one horizon.
+
+    ``warning_blocks`` / ``warning_time`` are ALERT-EMISSION blocks (the block at
+    which the K-th consecutive above-threshold observation was received), not the
+    start of the qualifying run. ``excursion_start_block`` records the run start
+    as separate metadata and is never used as the warning time.
+    """
 
     scenario_id: str
     attack_type: str
@@ -146,18 +266,34 @@ class ScenarioWarningResult:
     lead_time_ms: float | None
     category: str                 # anticipatory / immediate / late / none
     n_warnings: int
-    warning_duration_blocks: int  # span of first..last warning
+    warning_duration_blocks: int  # SPAN of first..last emission (not occupancy)
+    # --- repair additions (defaults preserve existing constructors) ---
+    excursion_start_block: float | None = None   # first block of the first run
+    persistence_satisfied_block: float | None = None
+    n_episodes: int = 0           # distinct emitted alert episodes
 
 
 def evaluate_scenario_warnings(
     df_scenario: pd.DataFrame,
     horizon: int,
     policy: WarningPolicy,
-    sustained_until_onset: bool = False,
+    sustained_until_onset: bool | None = None,
 ) -> ScenarioWarningResult:
-    """Full per-scenario warning evaluation for one horizon."""
-    fires = warning_blocks_for_scenario(
-        df_scenario, horizon, policy, policy.sustained_until_onset)
+    """Full per-scenario warning evaluation for one horizon.
+
+    Uses alert-EMISSION timestamps (causal). When ``sustained_until_onset`` is
+    True the returned list is filtered to retrospectively sustained events, but
+    the emission timestamps are unchanged and the unfiltered ledger remains
+    available via ``warning_events_for_scenario``.
+    """
+    use_sustained = policy.sustained_until_onset if sustained_until_onset is None else sustained_until_onset
+    all_events = warning_events_for_scenario(df_scenario, horizon, policy)
+    if use_sustained:
+        retention = retrospective_sustained_retention(all_events, df_scenario, horizon, policy)
+        events = [e for e in all_events if retention.get(e.event_id, False)]
+    else:
+        events = list(all_events)
+    fires = [int(e.emission_block) for e in events]
     onset = int(df_scenario["attack_onset"].iloc[0])
     attack_type = str(df_scenario["attack_type"].iloc[0])
     scenario_class = str(df_scenario["scenario_class"].iloc[0])
@@ -165,6 +301,7 @@ def evaluate_scenario_warnings(
     onset_for_lead = onset if onset >= 0 else None
     lt = lead_time(onset_for_lead, fires)
     wt = warning_time(fires)
+    # SPAN of emissions (kept for backwards compatibility; NOT occupancy)
     duration = (max(fires) - min(fires) + 1) if fires else 0
     category = warning_category(lt, policy.grace_blocks) if onset_for_lead is not None else (
         "none" if not fires else "false_early_warning"
@@ -181,6 +318,9 @@ def evaluate_scenario_warnings(
         category=category,
         n_warnings=len(fires),
         warning_duration_blocks=int(duration),
+        excursion_start_block=(all_events[0].excursion_start_block if events else None),
+        persistence_satisfied_block=(events[0].persistence_satisfied_block if events else None),
+        n_episodes=len(fires),
     )
 
 

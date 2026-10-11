@@ -188,24 +188,29 @@ def _prob_df(p_vals: list[float], onset: int = 200, attack_type: str = "lo_manip
 
 
 def test_warning_persistence_required():
-    """A single spike must NOT warn; K consecutive above threshold must."""
+    """A single spike must NOT warn; K consecutive above threshold must.
+
+    The reported warning time is the block at which the K-th consecutive
+    observation was received (alert emission), NOT the first block of the run
+    (see tests/test_causal_warning_semantics.py, acceptance test A)."""
     policy = WarningPolicy(prob_threshold=0.5, persistence_k=3, cooldown_blocks=50)
     # one spike
     df = _prob_df([0.1, 0.9, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
     assert warning_blocks_for_scenario(df, 50, policy) == []
-    # three consecutive
+    # three consecutive starting at index 1: emission at index 3
     df = _prob_df([0.1, 0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1])
     fires = warning_blocks_for_scenario(df, 50, policy)
-    assert fires == [1]  # first block of the satisfied run
+    assert fires == [3]  # block at which the 3rd observation arrived
 
 
 def test_warning_cooldown_suppresses_rearm():
     policy = WarningPolicy(prob_threshold=0.5, persistence_k=2, cooldown_blocks=8)
-    # run1 fires at t=0, cooldown until t=8; run2 (t=4,5) suppressed; run3 (t=7,8):
-    # t=8 not > 8 → suppressed. Only one warning total.
+    # run1: indices 0,1 -> emission at 1, cooldown until 1+8=9;
+    # run2 (indices 4,5): emission candidate at 5 -> 5 > 9? No -> suppressed;
+    # run3 (indices 7,8): emission candidate at 8 -> 8 > 9? No -> suppressed.
     df = _prob_df([0.9, 0.9, 0.1, 0.1, 0.9, 0.9, 0.1, 0.9, 0.9])
     fires = warning_blocks_for_scenario(df, 50, policy)
-    assert fires == [0]
+    assert fires == [1]
 
 
 def test_warning_never_fires_below_threshold():

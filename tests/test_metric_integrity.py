@@ -186,29 +186,39 @@ def _policy_frame(prob_col, values, onset, blocks=None):
     })
 
 
-def test_warning_timestamp_is_first_block_of_run_not_backdated():
-    """The live warning time must be the FIRST block of the K-run, i.e. the
-    earliest block at which the operator could have known the threshold was met
-    on K consecutive samples."""
+def test_warning_emission_time_is_when_persistence_is_satisfied():
+    """The live warning time must be the block at which the K-th consecutive
+    above-threshold observation was RECEIVED (alert emission), never the first
+    block of the qualifying run (see test_causal_warning_semantics.py for the
+    full acceptance suite)."""
     from quantumattack.baselines.warnings import warning_blocks_for_scenario, WarningPolicy
     pol = WarningPolicy(prob_threshold=0.5, persistence_k=3, cooldown_blocks=50)
-    # p crosses at block 500 and stays high; K=3 -> first fire must be 500
+    # p crosses at block 500; the 3rd consecutive sample arrives at block 502
     vals = [0.0] * 500 + [0.9] * 10
     df = _policy_frame("p_attack_future_h100", vals, onset=1000)
     fires = warning_blocks_for_scenario(df, 100, pol)
-    assert fires == [500], f"warning backdated; expected first causal block 500, got {fires}"
+    assert fires == [502], f"warning backdated; expected emission at 502, got {fires}"
 
 
-def test_sustained_policy_does_not_move_the_warning_timestamp():
-    """sustained_until_onset filters WHICH warnings survive using future onset,
-    but must never shift a retained warning earlier than its causal run start."""
-    from quantumattack.baselines.warnings import warning_blocks_for_scenario, WarningPolicy
+def test_sustained_retention_filters_without_moving_emission_timestamps():
+    """sustained_until_onset filters WHICH events survive using future onset,
+    but must never shift a retained event's emission timestamp earlier and must
+    never delete the underlying operational event from the event ledger."""
+    from quantumattack.baselines.warnings import (
+        warning_blocks_for_scenario, warning_events_for_scenario, WarningPolicy)
     pol = WarningPolicy(prob_threshold=0.5, persistence_k=3, cooldown_blocks=50,
                         sustained_until_onset=True)
     vals = [0.0] * 500 + [0.9] * 500
     df = _policy_frame("p_attack_future_h100", vals, onset=1000)
+    # operational ledger (causal, unfiltered): first emission at 502, excursion at 500
+    events = warning_events_for_scenario(df, 100, pol)
+    assert events[0].emission_block == 502
+    assert events[0].excursion_start_block == 500
+    # persistence satisfied == emission when no processing delay is modelled
+    assert events[0].persistence_satisfied_block == 502
+    # the retrospective filtered view keeps the same emission timestamp
     fires = warning_blocks_for_scenario(df, 100, pol, sustained_until_onset=True)
-    assert fires[0] == 500
+    assert fires[0] == 502
 
 
 def test_transient_spike_is_not_a_warning_under_sustained_policy():
@@ -230,7 +240,8 @@ def test_on_time_warning_precedes_onset_and_lead_is_positive():
     df = _policy_frame("p_attack_future_h100", vals, onset=1000)
     from quantumattack.baselines.warnings import warning_blocks_for_scenario
     fires = warning_blocks_for_scenario(df, 100, pol)
-    assert lead_time(1000, fires) == 200.0
+    # emission at the 3rd of the run starting at 800 -> 802; lead = 1000-802
+    assert lead_time(1000, fires) == 198.0
 
 
 # --------------------------------------------------------------------------
