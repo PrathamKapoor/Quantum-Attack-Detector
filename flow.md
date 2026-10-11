@@ -5,6 +5,31 @@ Status markers distinguish verified behavior from design intent.
 
 ## 0. Current status
 
+Metric-integrity & telemetry-robustness workstream (2026-10-11). Three defects
+established by inspection and measurement, all corrected in measurement (the
+frozen Phase 4/5 datasets and artifacts are UNCHANGED):
+
+1. **Time units** — the simulator time base (`BLOCK_MS = 10.0`, i.e. 0.01 s/block)
+   was correct in code; Phase 5 *report prose* used 0.1 s/block, inflating every
+   reported lead-time by 10x. Single authority now `src/quantumattack/temporal_units.py` (D-039).
+2. **Horizon validity** — warnings with lead > H were credited as H-forecasts.
+   29 of 79 anticipatory warnings (37%) exceeded their horizon. Now classified
+   into `horizon_valid_forecast` / `extended_pre_onset_alert` / `onset_detection` /
+   `post_onset_confirmation` (D-040).
+3. **Noise units** — the "robustness cliff at sigma>=0.02" was an artifact of
+   absolute noise on features spanning ~17 orders of magnitude. Re-measured in
+   train-sigma units the degradation is gradual (0.896 -> 0.549) (D-042).
+
+Also: Wilson intervals replace degenerate bootstrap event-rate CIs (D-041);
+NORMAL false alarms root-caused to sustained benign drift (D-043); frozen
+probabilities found miscalibrated (ECE 0.191) and corrected by validation-fit
+Platt scaling (D-044).
+
+Protocol: `docs/reliability-evaluation-protocol.md` (frozen v1).
+Evidence: `docs/reliability-research-report.md`.
+
+## 0b. Prior status (preserved research record)
+
 Phase 5 COMPLETE (2026-10-09): Independent Generalization, Simulator Validity & Forecasting Robustness.
 Pre-registered protocol (docs/phase5-protocol.md v1) with 160 scenarios across 4 disjoint generalization partitions:
 - G1 (Scenario Generalization): unseen seeds (H=100 AUROC 0.901, gradual warn rate 90.0%, median lead 78–99 blk).
@@ -182,6 +207,76 @@ eval-gru/metrics_gru.json):
   108–137 blocks; ATTRIBUTED (counterfactual, 6-pair test subset) 0.67–0.83.
 - The sustained-until-onset policy fixed the Phase 2/3 artifact (warmup-noise
   warnings); results are now physically coherent.
+
+## 3d. Metric-integrity & reliability evaluation flow (VERIFIED 2026-10-11)
+
+```text
+FROZEN inputs (unchanged)
+    data/phase4/{manifest.json,*.parquet}   + artifacts/phase4/features/
+    data/phase5/{manifest.json,*.parquet}   + artifacts/phase5/features/
+    ↓  splits.split_scenarios(manifest, SplitConfig(seed=42, …))
+    WHY: scenario-level isolation; pairs atomic; OOD family → test (D-021/D-027)
+    ↓  logistic.build_xy(train_frames, train, H, ModelConfig, feature_cols)
+    WHY: y_H(t)=1 iff t<onset<=t+H; train-only rows (t>=min_history_blocks)
+    ↓  logistic.fit_horizon_model(X, y, H, …)   WHY: scaler fit on TRAIN ONLY
+    ↓  feature_scale_from_train(X_train)
+    WHY: per-feature TRAIN std/IQR for scaled noise (never fit on eval data)
+    ↓
+    ── per evaluation scenario (G1/G2/G3/G4) ──
+    ↓  predict_proba(model, X)  →  p_attack_future_h{H} per block
+    WHY: sigmoid over train-standardized features; causal (uses only t and past)
+    ↓
+    ├─ [1] warnings.warning_blocks_for_scenario(df_pred, H, WarningPolicy)
+    │      WHY: K-consecutive runs above threshold; sustained_until_onset
+    │           filters transients (retained set uses onset — EVALUATION ONLY)
+    │      ↓  warnings.warning_time(fires) → first causal block of the run
+    │      ↓  forecast_horizons.classify_warning_outcome(warn_block, onset, H, grace)
+    │      WHY: enforces lead<=H; returns ONE of five exclusive outcomes (D-040)
+    │      ↓  statistics.wilson_interval(successes, n)   WHY: non-degenerate CI (D-041)
+    │
+    ├─ [2] classification_metrics + calibration_error
+    │      ↓  scenario-clustered bootstrap over SCENARIOS for AUROC CI (B=1000, seed 2026)
+    │
+    ├─ [3] noise_models.apply_perturbation(X, PerturbationSpec, FeatureScale)
+    │      WHY: explicit units (train_sigma | feature_range | raw_absolute); (D-042)
+    │      ↓  re-predict → AUROC/AUPRC/Brier per condition
+    │
+    ├─ [4] feature-subset refit → AUROC delta (fragility ablation)
+    │
+    ├─ [5] P(H1) <= P(H2) <= … coherence violation rate across horizons
+    │
+    ├─ [6] benign-only false-alarm burden: scenario rate / warnings per scenario /
+    │      warning-load fraction / episodes per 1000 simulated seconds
+    │
+    ├─ [7] longest_run_above(p) + run_ends_at_block
+    │      WHY: tests whether a benign false alarm is sustained to scenario end (D-043)
+    │
+    └─ [8] Platt / isotonic calibration fit on Phase 4 VAL ONLY
+           WHY: raw balanced-classifier probabilities are miscalibrated (D-044)
+
+artifacts/reliability/evaluation/reliability_report.json
+```
+
+### Timing, availability and failure handling
+
+- **WHEN**: steps 1–8 run at evaluation time only. Nothing here executes inside the
+  simulator loop or during training.
+- **Availability**: `temporal_units` is a pure constant lookup — no I/O, no state.
+  `forecast_horizons.classify_warning_outcome` is pure and total over its inputs.
+- **Failure handling**: `classify_warning_outcome` raises `ValueError` for
+  `horizon < 1`; `wilson_interval` raises on impossible counts (k > n, negatives)
+  and returns all-`None` for `n == 0` (undefined, never 0.0); the clustered
+  bootstrap records `n_failed_resamples` rather than silently shrinking the interval.
+- **Reproducibility**: bootstrap seed 2026 is recorded in every CI block; AUROC
+  resampling counts failed resamples explicitly.
+
+### Unit discipline (normative)
+
+Every reported duration MUST name its unit. The conversion is
+`seconds = blocks × 0.01` via `temporal_units.blocks_to_seconds`. Horizon
+durations: H=10 → 0.1 s, H=25 → 0.25 s, H=50 → 0.5 s, H=100 → 1.0 s.
+Warning lead times are reported in BOTH blocks and seconds from the same source
+value; a mismatch between them is a bug (regression-tested).
 
 ## 4. Downstream flow (DESIGN — not yet implemented)
 

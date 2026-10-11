@@ -417,3 +417,79 @@ the earlier ID.
   3. Graph Model Gate formally maintained at **`HOLD`**: The early warning signal remains governed by single-component temporal dynamics and local control-loop hunting. Graph escalation remains unjustified in the absence of multi-node spatial dependencies.
 - Consequences: Phase 5 successfully closed out; repository in clean, fully verified state.
 - Files: docs/phase5-final-report.md, handoff.md
+
+### D-039: Single authoritative temporal-unit conversion (`temporal_units`)
+
+- Date / workstream / commit: 2026-10-11 / Metric integrity / uncommitted
+- Context: Phase 5 reports stated lead times as "78 blocks = 7.8 s", "99 blocks = 9.9 s", "147 blocks = 14.7 s", "228 blocks = 22.8 s". These imply 0.1 s/block, contradicting `docs/time-semantics.md` (1 block = 10 ms) and the code constant `simulator.config.BLOCK_MS = 10.0`.
+- Observed symptom: Reported lead times were 10x larger than the simulator's actual time base.
+- Verified root cause: The conversion in the *code* is correct (`lead_time_ms = blocks * BLOCK_MS`; `manifest.json` records `block_ms: 10.0`; `Clock.t_ms = block_index * BLOCK_MS`). The defect was confined to **human-readable report text** in `docs/phase5-final-report.md` and `docs/phase5-robustness-report.md`, which used 0.1 s/block. No stored numeric metric was corrupted; `median_lead_blocks` is correct and the seconds column was wrong.
+- Decision: (a) Confirm the code time base is authoritative and unchanged. (b) Introduce `src/quantumattack/temporal_units.py` as the single conversion authority (`blocks_to_seconds`, `seconds_to_blocks`, `blocks_to_ms`, `blocks_to_symbols`, `horizon_seconds`, `verify_time_base`) so the factor-of-ten class of error cannot recur in machine-readable outputs. (c) Correct the Phase 5 report seconds values by *superseding annotation*, not by rewriting the stored artifacts.
+- Why: Duplicated ad-hoc time constants are the root cause; a single authority plus regression tests removes the failure mode.
+- Alternatives considered: Changing `BLOCK_MS` to 100 ms — rejected: the simulator's cadence is anchored to a 10 ms parameter-estimation frame (docs/time-semantics.md §1) and changing it would corrupt every dataset. Editing historical reports in place — rejected: they are research evidence; superseded values are added with explicit traceability instead.
+- Consequences: 78 blocks = 0.78 s; 99 = 0.99 s; 147 = 1.47 s; 228 = 2.28 s. Horizon table H=10/25/50/100 = 0.1/0.25/0.5/1.0 s confirmed by test.
+- Bug-fix metadata — Observed symptom: factor-of-ten inflation of all reported lead-time seconds. Verified root cause: ad-hoc 0.1 s/block literal in report prose while code used `BLOCK_MS`. Regression test: `tests/test_metric_integrity.py::test_blocks_to_seconds_regression_values`, `::test_horizon_durations_match_documented_table`, `::test_block_is_ten_milliseconds_not_one_hundred`.
+- Files: src/quantumattack/temporal_units.py, tests/test_metric_integrity.py, docs/reliability-research-report.md
+
+### D-040: Horizon-valid forecasting accounting (supersedes the merged "anticipatory rate")
+
+- Date / workstream / commit: 2026-10-11 / Metric integrity / uncommitted
+- Context: A model at horizon H predicts `P(onset within (t, t+H])`. `docs/time-semantics.md` §5 defines `y_H(t)=1` only when `t < onset <= t+H`. The evaluator (`baselines/warnings.py::warning_category`) nevertheless classified ANY warning with `lead > grace_blocks` as "anticipatory", regardless of H, and counted it as an H-forecast success.
+- Observed symptom: Phase 5 reported G1 `calibration_manipulation` at 90% and `channel_jamming` (dense probes) at 100% "anticipatory warning rate" at H=100, with median leads of 99 and 147 blocks — the latter exceeding H=100 outright. Lead times up to **567 blocks** (5.67 s) were credited to a 100-block (1.0 s) forecaster.
+- Verified root cause: No horizon-validity constraint existed in the success accounting. Measured on G1+G2+G4 at H=100: **29 of 79 anticipatory warnings (37%) exceeded the horizon**. At those times the true label was `y_100 = 0`, so a probability above threshold is a false positive of the horizon-100 event, not a successful forecast.
+- Decision: Introduce `src/quantumattack/forecast_horizons.py` with `classify_warning_outcome` returning exactly one of five mutually exclusive outcomes: `horizon_valid_forecast` (0 < lead <= H), `extended_pre_onset_alert` (lead > H), `onset_detection`, `post_onset_confirmation`, `no_warning`. Only `horizon_valid_forecast` earns horizon-forecast credit. The historical `warning_category` is left intact for backwards compatibility with frozen artifacts; new reporting uses the new taxonomy.
+- Why: Prediction, extended alerting and post-onset confirmation are different security capabilities; merging them inflates the headline claim. The three measurements are now reported separately, never summed.
+- Alternatives considered: (a) Relabel warnings instead of re-scoring — rejected, would leave the counts wrong. (b) Restrict evaluation to horizons large enough to cover observed leads — rejected, that would redefine the forecaster to fit the data. (c) Treat over-horizon warnings as invalid experiments — rejected, they are genuine alerts and are reported as `extended_pre_onset_alert`.
+- Consequences (measured, G1, H=100, Wilson 95% CI): `calibration_manipulation` 90% -> **50.0% [23.7%, 76.3%]**; `lo_manipulation` 90% -> **50.0% [23.7%, 76.3%]**. G4 `channel_jamming` 63.3% -> **16.7% [7.3%, 33.6%]** with 46.7% as extended alerts. Horizon-valid median leads: 0.89 s (cal-manip), 0.67 s (LO-manip), 0.29 s (jamming).
+- Bug-fix metadata — Observed symptom: out-of-horizon warnings counted as H-forecast successes. Verified root cause: success accounting lacked a `lead <= H` constraint. Regression test: `tests/test_metric_integrity.py::test_warning_inside_horizon_is_horizon_valid`, `::test_warning_just_beyond_horizon_is_extended_alert_not_forecast`, `::test_warning_far_beyond_horizon_is_still_extended_alert`, `::test_horizon_validity_shrinks_as_horizon_shrinks`.
+- Files: src/quantumattack/forecast_horizons.py, scripts/evaluate_reliability.py, tests/test_metric_integrity.py
+
+### D-041: Wilson score intervals for event rates; scenario as the statistical unit
+
+- Date / workstream / commit: 2026-10-11 / Statistical correctness / uncommitted
+- Context: `scripts/evaluate_phase5.py::rate_ci` estimated warning and false-warning rates with a percentile bootstrap over a degenerate binary vector. For an all-success group (7/7) it returned exactly `[1.0, 1.0]`; for an all-failure group (0/30) exactly `[0.0, 0.0]`. Phase 5 reported "100.0% [100.0%, 100.0%]" and "0.0% [0.0%, 0.0%]" as confidence intervals.
+- Observed symptom: Zero-width confidence intervals asserting certainty from 7–15 correlated scenarios.
+- Verified root cause: A percentile bootstrap on a binary vector whose every entry is identical has zero sampling variance by construction. The interval width was an artifact of the estimator, not evidence of certainty.
+- Decision: Introduce `src/quantumattack/statistics.py` with `wilson_interval` (validated to 1e-10 against an independent implementation, and against `scipy.stats.norm.ppf` to 1e-9 for the quantile) and `scenario_cluster_bootstrap` (resamples whole scenarios, records seed, counts failed resamples, returns None for undefined groups). All new reporting uses Wilson for event rates and scenario-clustered bootstrap for AUROC/AUPRC/Brier/lead time.
+- Why: Small samples do not justify certainty; an operator acting on "100% [100%, 100%]" would be misled.
+- Alternatives considered: Clopper-Pearson exact intervals — valid and similarly non-degenerate, but more conservative and wider; Wilson chosen for standard practice and adequate coverage at these sample sizes. Installing statsmodels — rejected: adds a dependency for functionality correctly implemented with existing numpy/scipy.
+- Consequences: 7/7 now reports [64.6%, 100%]; 0/30 reports [0%, 11.4%]. G1 `calibration_manipulation` horizon-valid 50% (n=10) reports [23.7%, 76.3%].
+- Bug-fix metadata — Observed symptom: degenerate [1,1]/[0,0] intervals. Verified root cause: bootstrap over a constant binary vector. Regression test: `tests/test_metric_integrity.py::test_wilson_interval_is_nondegenerate_at_zero_and_one`, `tests/test_statistics.py::test_wilson_narrows_with_more_samples`.
+- Files: src/quantumattack/statistics.py, tests/test_statistics.py, tests/test_metric_integrity.py
+
+### D-042: Telemetry perturbation defined in explicit units (`noise_models`)
+
+- Date / workstream / commit: 2026-10-11 / Reliability / uncommitted
+- Context: Phase 5 Test A added a single absolute `sigma=0.02` to the raw feature matrix and reported "a sharp cliff at sigma >= 0.02 collapsing AUROC from 0.896 to 0.503", concluding the feature set was brittle and that denoising/Kalman filtering would be mandatory.
+- Observed symptom: AUROC collapsed to chance and stayed at 0.503 for sigma in {0.05, 0.1, 0.2}.
+- Verified root cause: Group-D features span ~17 orders of magnitude in training spread. Measured on the frozen Phase 4 train split (189 features): `qber_proxy` std ~4.7e-17, `recon_efficiency` std ~3.5e-12, `cusum_neg_lo_power` std ~1.5e5. A fixed absolute sigma=0.02 equals **>= 1x the feature's own train std for 93 of 189 features**, **>= 5x for 63 features**, and ~5.7e9x for `recon_efficiency`. The experiment destroyed small-scale features completely while leaving large-scale ones untouched; the "cliff" was a units artifact, and the saturation at identical AUROC for all larger sigma confirmed saturation rather than graded degradation.
+- Decision: Introduce `src/quantumattack/noise_models.py` requiring an explicit `units` string on every perturbation: `train_sigma` (multiples of each feature's TRAIN std), `feature_range` (fraction of TRAIN IQR), or `raw_absolute` (the legacy definition, retained **only** to reproduce the historical experiment and labelled not physically meaningful). Add structured corruptions (temporally correlated noise, impulsive spikes, quantization, missing-sample dropout, dead channels). Feature scale is fit on TRAIN data only.
+- Why: A robustness claim is meaningless unless the perturbation magnitude is expressible in a comparable scale. The historical conclusion "the model is brittle" was an artifact.
+- Alternatives considered: Adding a denoiser (Kalman/EWMA) as the first response — rejected: that would treat a symptom whose cause was never established, and would have been evaluated on a saturated metric that cannot discriminate.
+- Consequences (G1, H=100, re-measured): train-sigma 0.0 -> AUROC 0.896; 0.05 -> 0.861; 0.1 -> 0.815; 0.2 -> 0.740; 0.5 -> 0.644; 1.0 -> 0.592; 2.0 -> 0.549. Legacy raw-absolute 0.02 -> 0.499. Degradation is **gradual and interpretable**, not a cliff. The correct engineering conclusion is that tolerance is roughly 0.2 train-sigma units before AUROC falls below 0.75.
+- Bug-fix metadata — Observed symptom: unit-ambiguous noise experiment producing a false robustness cliff. Verified root cause: absolute sigma applied to heterogeneous features. Regression test: `tests/test_noise_models.py::test_train_sigma_noise_scales_with_each_feature`, `::test_raw_absolute_overwhelms_small_features`.
+- Files: src/quantumattack/noise_models.py, tests/test_noise_models.py, scripts/evaluate_reliability.py
+
+### D-043: NORMAL false alarms are sustained benign drift, not a warmup artifact
+
+- Date / workstream / commit: 2026-10-11 / Reliability investigation / uncommitted
+- Context: Phase 5 reported a 35.0% NORMAL false-warning rate alongside 0.0% BENIGN_DRIFT, without root-cause analysis.
+- Observed symptom: 7 of 20 G1 NORMAL benign scenarios raised at least one warning, while 0 of 20 G3 stress scenarios (which reach max p = 0.9999) raised any.
+- Verified root cause: Under the frozen `sustained_until_onset=True` policy, a benign warning is retained only if the probability stays above threshold from the first block of the K-run until **scenario end**. Measured: every one of the 3 G1 NORMAL scenarios whose above-threshold run reaches the end of the scenario produced a false alarm; **0 of the 53 benign scenarios whose run does not reach the end did**. G3 intense-disturbance scenarios spike to p ~ 0.999 transiently but fall back below threshold, so they are correctly filtered. The 7 failing G1 scenarios first warn at blocks 967–1995 (median 1934) — i.e. late scenario, ruling out a warmup artifact.
+- Decision: Classify this as **true observational ambiguity under a sustained alarm policy**, not a code defect. The operating alarm burden is reported with three distinct quantities rather than one rate: scenario-level false-alarm rate, mean warnings per scenario (2.35), and warning-load fraction (5.1% of operating time). Hour-normalized rates are explicitly NOT reported because a scenario is only 20 s of simulated operation, making an hourly rate an extrapolation ~180x beyond the simulated window.
+- Why: Distinguishing "the model cannot tell benign drift from precursor" from "the alarm policy is deliberately sticky" changes the correct remedy (operating-point selection vs. new features).
+- Alternatives considered: Removing the NORMAL failures from the dataset — rejected (would hide the result). Relaxing `sustained_until_onset` — rejected without evidence, since it was introduced in D-028 precisely to remove warmup-noise false warnings; the trade-off must be measured on validation, not decided here.
+- Consequences: G1 NORMAL false-alarm rate 35.0% [18.1%, 56.7%] is a real operational burden under the frozen policy, not a measurement error. G3 0/20 reports [0%, 16.1%], not [0%, 0%].
+- Files: scripts/evaluate_reliability.py, docs/reliability-research-report.md
+
+### D-044: Frozen logistic probabilities are miscalibrated; Platt scaling on validation fixes it
+
+- Date / workstream / commit: 2026-10-11 / Calibration / uncommitted
+- Context: The warning policy thresholds raw logistic output at P >= 0.5, yet Phase 5 never verified that those numbers mean anything.
+- Observed symptom: On G1 at H=100, the uncalibrated forecaster has ECE = 0.191 and Brier = 0.119 — severely overconfident relative to the empirical event rate.
+- Verified root cause: `class_weight='balanced'` is applied to a target with a ~2.8% positive rate, so the fitted intercept is optimized for a heavily re-balanced objective and the resulting sigmoid does not correspond to the true conditional frequency.
+- Decision: Evaluate calibration variants fit on the **Phase 4 validation partition only** (41 scenarios, 77,900 rows, 1,800 positives at H=100): uncalibrated vs Platt vs isotonic. Results: Platt Brier 0.119 -> **0.0216**, ECE 0.191 -> **0.0105**; isotonic Brier 0.0211, ECE 0.0118 (supported: 1,800 positives >= 200 threshold).
+- Why: A probability that is off by ~0.19 in expected calibration error cannot support a P >= 0.5 operating point. Calibration was never the cause of the reported AUROC (AUROC is rank-based and unchanged), but it directly determines whether the threshold is meaningful.
+- Alternatives considered: Changing `class_weight` — rejected: it would alter the frozen baseline that all prior results depend on. Fitting calibration on G1 — rejected: G1 is an exposed evaluation partition (see the protocol's disclosure section).
+- Consequences: The frozen baseline is preserved and reproducible; calibration is offered as a validated, validation-fit correction with its clean-condition effect reported. Probabilities remain calibrated to the **synthetic** attack distribution only and are not real-world attack probabilities.
+- Files: scripts/evaluate_reliability.py, docs/reliability-evaluation-protocol.md
