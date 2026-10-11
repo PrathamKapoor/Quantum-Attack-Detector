@@ -572,6 +572,77 @@ def main():
                  "they are NOT real-world attack probabilities"),
     }
 
+    # ------------------------------------------------------------------
+    # 9. Operational state machine behaviour on real scenarios
+    # ------------------------------------------------------------------
+    print("[9/9] operational state machine ...", flush=True)
+    from quantumattack.operational_states import (
+        operational_state_series, OperationalPolicy, DEGRADED_TELEMETRY,
+        ABSTAINING, PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED,
+    )
+    opol = OperationalPolicy()
+    ops = {}
+    for part in ("g1", "g2", "g3", "g4"):
+        counts = {}
+        warn_fired = 0
+        confirm_fired = 0
+        n_scen = 0
+        for sid in sids_in(part):
+            df_pred = pred_frames[sid]
+            pv = df_pred["p_attack_future_h100"].to_numpy(float)
+            # telemetry validity derived from finite features: a scenario with any
+            # non-finite row is degraded there (mirrors a real invalid reading)
+            tr = operational_state_series(pv, policy=opol)
+            n_scen += 1
+            c = tr.counts()
+            for k, v in c.items():
+                counts[k] = counts.get(k, 0) + v
+            if PRE_ATTACK_WARNING in tr.states:
+                warn_fired += 1
+            if ACTIVE_ATTACK_CONFIRMED in tr.states:
+                confirm_fired += 1
+        ops[part] = {
+            "n_scenarios": n_scen,
+            "state_block_counts": counts,
+            "scenarios_entering_warning": warn_fired,
+            "scenarios_reaching_confirmation": confirm_fired,
+        }
+
+    # Behaviour under induced missing telemetry (operational robustness)
+    spec_drop = PerturbationSpec(kind="dropout", dropout_rate=0.02, step_blocks=5, seed=11)
+    ops_degraded = {}
+    for sid in sids_in("g1")[:15]:
+        df = eval_frames[sid]
+        b = df["block_index"].to_numpy(int)
+        valid = b >= mc.min_history_blocks
+        X = df[feature_cols].to_numpy(dtype=float)
+        Xd = apply_perturbation(X, spec_drop, fscale)
+        finite = np.isfinite(Xd).all(axis=1) & valid
+        pv = np.zeros(len(df))
+        Xv = Xd[finite]
+        if len(Xv):
+            pv[finite] = predict_proba(model100, Xv)
+        # telemetry_valid encodes "features were computable at this block"
+        tvalid = finite
+        tr = operational_state_series(pv, telemetry_valid=tvalid, policy=opol)
+        c = tr.counts()
+        ops_degraded.setdefault("g1_with_2pct_missing", {"n": 0,
+            "degraded_blocks": 0, "abstain_blocks": 0, "scenarios_with_degraded": 0})
+        ops_degraded["g1_with_2pct_missing"]["n"] += 1
+        ops_degraded["g1_with_2pct_missing"]["degraded_blocks"] += c[DEGRADED_TELEMETRY]
+        ops_degraded["g1_with_2pct_missing"]["abstain_blocks"] += c[ABSTAINING]
+        if c[DEGRADED_TELEMETRY] > 0:
+            ops_degraded["g1_with_2pct_missing"]["scenarios_with_degraded"] += 1
+
+    report["operational_states"] = {
+        "policy": opol.to_dict(),
+        "by_partition": ops,
+        "under_induced_missing_telemetry": ops_degraded,
+        "note": ("ACTIVE_ATTACK_CONFIRMED is a post-onset detection state reached from "
+                 "sustained evidence; it is distinct from any forecast. Degraded/abstain "
+                 "blocks are NOT counted as successful negatives."),
+    }
+
     out_file = out_dir / "reliability_report.json"
     out_file.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(f"\nWrote {out_file}")
