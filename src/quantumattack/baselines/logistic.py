@@ -145,6 +145,12 @@ def fit_horizon_model(
         clf = LogisticRegression(
             C=model_config.C, class_weight=model_config.class_weight,
             max_iter=model_config.max_iter, random_state=model_config.random_state,
+            # 'liblinear' is deterministic across processes and thread counts.
+            # The default 'lbfgs' uses multi-threaded BLAS reductions whose order
+            # varies between runs, so coefficients differ at ~1e-3 and downstream
+            # metrics move at ~1e-2 (D-048). liblinear fits a deterministic
+            # primal problem here at comparable cost.
+            solver="liblinear",
         )
         clf.fit(Xs, y_train)
 
