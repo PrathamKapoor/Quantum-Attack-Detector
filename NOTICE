@@ -1,0 +1,16 @@
+Quantum Attack Detector
+Copyright 2026 PrathamKapoor
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the
+full legal terms.
+
+This distribution consists of the project's own source code, configuration and
+documentation. It contains no vendored third-party source code, no external
+datasets, and no third-party images or figures.
+
+Third-party Python packages listed in requirements.txt and requirements-dev.txt
+are installed separately from their own distributions and remain under their
+respective licenses; they are not distributed as part of this work.
+
+Literature referenced in docs/ (for example docs/research-landscape.md) is cited
+bibliographically. No third-party text is reproduced here.

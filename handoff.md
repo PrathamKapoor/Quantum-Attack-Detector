@@ -1,40 +1,64 @@
 # handoff.md
 
 Exact current implementation state for continuation. Updated 2026-10-12
-(workstream: public release preparation on top of independent scientific
-validation, adversarial reproducibility audit and the untouched confirmatory
-evaluation). All statements traceable to source, tests, or hash-recorded
-artifacts; negative results preserved.
+(workstream: Apache-2.0 licensing and packaging metadata, on top of public
+release preparation, independent scientific validation, adversarial
+reproducibility audit and the untouched confirmatory evaluation). All statements
+traceable to source, tests, or hash-recorded artifacts; negative results
+preserved.
 
 ---
 
-## 0. Publication Status (release preparation, D-055/D-056)
+## 0. Publication Status (release preparation + licensing, D-055..D-057)
 
+- **License: Apache-2.0 (adopted, D-057).** Root `LICENSE` holds the complete
+  official Apache License 2.0 text, byte-identical to
+  `https://www.apache.org/licenses/LICENSE-2.0.txt` (11,358 bytes, SHA-256
+  `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30`).
+  `NOTICE` records the project copyright (`Copyright 2026 PrathamKapoor`) and
+  states that the distribution contains no third-party material.
+  The earlier all-rights-reserved status (D-056) applied to commits before the
+  licensing commit and is deliberately preserved in history.
+- **Package metadata:** PEP 639 form — `license = "Apache-2.0"`,
+  `license-files = ["LICENSE", "NOTICE"]`, build requirement
+  `setuptools>=77.0.0`. Package version unchanged at `0.1.0` (single-sourced from
+  `quantumattack.__version__`); runtime and optional dependencies unchanged.
+- **Packaging verified:** `python -m build` → `quantumattack-0.1.0.tar.gz` +
+  `quantumattack-0.1.0-py3-none-any.whl`. Wheel `METADATA` reports
+  `Metadata-Version: 2.4`, `License-Expression: Apache-2.0`,
+  `License-File: LICENSE`, `License-File: NOTICE`; both files are embedded under
+  `quantumattack-0.1.0.dist-info/licenses/` (LICENSE hash unchanged). The sdist
+  contains `LICENSE` and `NOTICE` with the same `PKG-INFO` declarations. A clean
+  virtual environment installed the wheel and imported the package successfully
+  (`__version__ == 0.1.0`).
+- **Tests after the licensing change:** `python -m pytest --collect-only -q` →
+  255 collected; `python -m pytest tests/ -q -ra` → 255 passed; CI subset →
+  194 passed / 4 deselected. No scientific code, configuration, threshold or
+  result was touched.
+- **Licensing commit:** the commit that introduced the Apache-2.0 licensing is the
+  `main` tip immediately after parent `99b9c55`; its hash is recorded here by
+  reference (`git log -1 --format=%H`) because a commit cannot contain its own
+  SHA. The GitHub remote was verified equal to local `main` (ahead/behind 0/0)
+  after a non-force push.
 - **Published:** `https://github.com/PrathamKapoor/Quantum-Attack-Detector`
   (branch `main`, full history preserved, non-force push; local HEAD == `origin/main`,
   ahead/behind 0/0). Repository description and topics set via the GitHub API.
 - **CI on GitHub:** the push-triggered workflow ran green on both Python 3.11 and 3.13
   (dataset-independent suite + CLI smoke test) — the first execution of this code
   outside the authoring machine.
-- **Credential audit:** 120 tracked files + 187 unique blobs across 21 commits
-  scanned (GitHub tokens, AWS key IDs, PEM private-key headers, bearer tokens,
-  password/secret assignments, Slack webhooks): **0 hits**, working tree and
-  reachable history.
+- **Credential audit:** tracked files and the full reachable history scanned
+  (GitHub tokens, AWS key IDs, PEM private-key headers, bearer tokens,
+  password/secret assignments, Slack webhooks): **0 hits**.
 - **Local-only by design:** `data/` and `artifacts/` (datasets, features,
   evaluation JSON, evidence bundles, confirmatory runs) remain git-ignored and
   are regenerated from `configs/simulation/*.yaml` (commands in README
-  "Reproducibility"). Largest tracked file is 94 KB.
+  "Reproducibility"). Build outputs (`dist/`, `src/quantumattack.egg-info/`) are
+  likewise git-ignored.
 - **Fresh-clone verified:** clone into an empty directory → venv → `pip install -e .`
   + `requirements-dev.txt` → dataset-independent subset **194 passed / 4 deselected**;
   `simulator.generate` on `configs/simulation/phase1.yaml` exported **65 scenarios**
   in 16 s; `features_cli` exported **65 feature files × 218 columns**. No access to
   the original working tree or its datasets was required.
-- **Full local suite:** `255 passed in 117.09 s`. Dataset-independent CI subset
-  passes from a clean clone.
-- **OPEN — license:** no license file exists and none was invented. `pyproject.toml`
-  declares `license = { text = "Proprietary" }`; the README states that the code is
-  publicly viewable but not licensed, and reuse/redistribution requires the author's
-  permission. Selecting an OSI license remains an author decision (D-056).
 
 ---
 
@@ -134,8 +158,8 @@ manifest_generation.json, data/, features/}`.
    for stronger generalization claims.
 5. NOT recommended: larger models, GNN, denoising — none addresses the measured
    bottlenecks.
-6. **Publication:** choose a license (MIT/Apache-2.0/GPL or keep all-rights-reserved);
-   this is an author decision and was deliberately not guessed (D-056).
+6. ~~Publication: choose a license~~ — **done, Apache-2.0 adopted (D-057).**
+   `LICENSE` + `NOTICE` at the root, PEP 639 metadata, README aligned.
 7. The dataset-dependent integration tests only run after regenerating `data/` and
    `artifacts/` locally; CI covers the dataset-independent subset only.
 
@@ -154,3 +178,7 @@ manifest_generation.json, data/, features/}`.
   `python scripts/analyze_confirmatory.py <stamp>`.
 - Public documentation must keep the README's measured numbers in step with the
   decision log; no number may appear that was not produced by a recorded run.
+- The project is Apache-2.0 licensed (D-057). Apache-2.0 requires derivative works
+  to carry the licence copy, mark modified files, and retain this `NOTICE`; keep
+  `LICENSE`/`NOTICE` intact and do not reintroduce "Proprietary" metadata. The
+  licence says nothing about scientific validity — the status below is unchanged.

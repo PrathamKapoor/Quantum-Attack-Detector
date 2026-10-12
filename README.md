@@ -1,5 +1,7 @@
 # Quantum Attack Detector
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **A research framework for causal attack monitoring, sequential detection, and early-warning evaluation in simulated CV-QKD systems.**
 
 Quantum Attack Detector is an open research codebase that simulates a Gaussian-modulated coherent-state (GMCS) continuous-variable quantum-key-distribution link, injects physically modeled attack and benign-drift scenarios, and rigorously evaluates — with causal, emission-time-accurate event accounting — whether machine-learning forecasting or classical sequential detection provides useful advance warning of attacks.
@@ -142,6 +144,8 @@ Quantum-Attack-Detector/
 ├── handoff.md                 # current verified state
 ├── pyproject.toml             # packaging + dependencies
 ├── requirements*.txt          # dependency manifests
+├── LICENSE                    # Apache License 2.0
+├── NOTICE                     # project attribution notice
 └── SECURITY.md                # what counts as a defect in this project
 ```
 
@@ -325,4 +329,17 @@ This is research software for studying detection methodology in simulation; it d
 
 ## License
 
-**No open-source license has been granted yet.** All rights are reserved by the author pending an explicit licensing decision. The code is publicly viewable for review and research assessment; reuse, modification, or redistribution requires the author's permission. (Adding an OSI license is a deliberate pending decision, recorded in `handoff.md`.)
+Quantum Attack Detector is licensed under the
+[Apache License, Version 2.0](LICENSE) (`Apache-2.0`).
+
+You may use, modify, and distribute the licensed material
+subject to the terms of the license, including its applicable
+copyright, attribution, and notice requirements. Attribution for
+the project itself is recorded in [`NOTICE`](NOTICE).
+
+See the [LICENSE](LICENSE) file for the full legal terms.
+
+> The license governs the code. It does **not** change the scientific status: this
+> remains synthetic-only, research software that is not hardware-validated and not
+> certified for protecting a live QKD link. See [Scientific status](#scientific-status)
+> and [Limitations](#limitations).
