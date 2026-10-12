@@ -11,7 +11,11 @@ artifacts; negative results preserved.
 ## 0. Publication Status (release preparation, D-055/D-056)
 
 - **Published:** `https://github.com/PrathamKapoor/Quantum-Attack-Detector`
-  (branch `main`, full history preserved, non-force push).
+  (branch `main`, full history preserved, non-force push; local HEAD == `origin/main`,
+  ahead/behind 0/0). Repository description and topics set via the GitHub API.
+- **CI on GitHub:** the push-triggered workflow ran green on both Python 3.11 and 3.13
+  (dataset-independent suite + CLI smoke test) — the first execution of this code
+  outside the authoring machine.
 - **Credential audit:** 120 tracked files + 187 unique blobs across 21 commits
   scanned (GitHub tokens, AWS key IDs, PEM private-key headers, bearer tokens,
   password/secret assignments, Slack webhooks): **0 hits**, working tree and
