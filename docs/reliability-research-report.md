@@ -614,3 +614,84 @@ The comparison separates prediction (forecast before onset), early detection
 pre-onset ramp), and active-attack detection (at/after the configured onset).
 Neither system is claimed to dominate; the measured trade-offs are reported with
 scenario-level Wilson intervals and matched false-alert budgets where reachable.
+
+---
+
+## 16. Untouched confirmatory evaluation (added 2026-10-12; D-054)
+
+A pre-registered protocol (`docs/confirmatory-evaluation-protocol.md`, frozen at
+commit `e6bfb22` before generation) was executed on **148 genuinely untouched
+synthetic scenarios** (seeds 41000-42999, stride 7, verified disjoint from all
+439 historical seeds). Outputs are immutable and hash-recorded under
+`artifacts/confirmatory/20261012T045123Z/`.
+
+### 16.1 Confirmatory results (Wilson 95%)
+
+| Group (n benign / n attacks) | Forecaster benign FWR | Forecaster horizon-valid | Detector benign FPR | Detector sensitivity | Detector pre-onset |
+|---|---|---|---|---|---|
+| C1_NORMAL (30/0) | 60.0% [42.3, 75.4] | - | **3.3% [0.6, 16.7]** | - | - |
+| C1_ATTACKS (0/20) | - | **0/20** | - | 100% | 80.0% |
+| C1_SUDDEN (0/10) | - | 0/10 | - | 100% | **0% (correct physics)** |
+| C2_RAMPS (0/28) | - | 0/28 | - | 100% | 67.9% |
+| C3_ENV_STRESS (30/0) | 43.3% [27.4, 60.8] | - | 10.0% [3.5, 25.6] | - | - |
+| C4_JAMMING (0/30) | - | 0/30 | - | 100% | 46.7% |
+| **ALL (60/88)** | **51.7% [39.3, 63.8]** | **0/88 (0.000)** | **6.7% [2.6, 15.9]** | **100%** | **55.7%** |
+
+Median first-emission lead (forecaster): 887 blocks (8.87 s) - far outside the
+declared H=100. Median pre-onset lead (detector): 96 blocks (0.96 s).
+
+### 16.2 Independent reproduction of the v2 finding
+
+The confirmatory population was generated AFTER the v2 correction and never
+inspected during development. It reproduces, on untouched seeds, exactly the
+corrected operational picture:
+
+- the frozen forecaster's horizon-valid rate is **0.000** (not the historical
+  50-90% claims, which were retention-selection artifacts);
+- the benign false-alarm burden at the frozen operating point is severe;
+- the conventional detector achieves its pre-declared false-alert budget
+  (6.7% <= 10% budget) with full sensitivity.
+
+### 16.3 Lifecycle finding (prevents overclaiming)
+
+**No detector alert preceded `precursor_start`** on any of the 88 attacks.
+Every pre-onset detection occurred during the modeled attacker preparation /
+ramp phase. The system therefore demonstrates **early malicious-activity
+detection**, not prediction before any hostile action. The 0% pre-onset rate on
+`intercept_resend` (sudden, no precursor) is the expected physics.
+
+### 16.4 Confirmation-state honesty
+
+`ACTIVE_ATTACK_CONFIRMED` is now driven by real detector evidence. On untouched
+data: **88/88 attacks confirmed; 4/60 benign confirmed (6.7%)** - the
+confirmation state inherits the detector's false-alert rate by construction.
+An operator must understand that "confirmed" means "the calibrated detector
+observed a sustained threshold excursion", not forensic proof of attacker action.
+
+### 16.5 Negative controls (untouched data)
+
+- Time-only predictor AUROC **0.525** vs telemetry-model AUROC **0.880**
+  (30 C1 attack scenarios): attack onsets are not trivially scheduled; the
+  discrimination is telemetry-driven.
+- Detector statistics are bit-identical under label stripping/permutation and
+  across sequential scenario runs (no label or state leakage).
+
+### 16.6 Robustness limits quantified
+
+- **Benign-envelope overlap:** the frozen h=200 sits at the benign
+  max-statistic p95 (189.7); 45/100 attacks show no pre-onset statistic above
+  the benign p95. Pre-onset detection covers the ramp subset only.
+- **Warmup contamination:** an attack already active during the 200-block
+  baseline window is **completely masked** for weak signatures (8-10 sigma:
+  0 warnings vs 18-22 clean); the strongest family (~832 sigma) remains
+  detectable. This mode is impossible in the historical partitions (no onset
+  < 200) and was invisible until probed.
+
+### 16.7 Gate consequence
+
+The gate remains **`WEAK SIGNAL`**: the untouched experiment confirms the
+operational-forecasting claim is unsupported (0% horizon-valid at the frozen
+point) while the conventional detector is validated for its actual capability
+(early detection during preparation, measured false-alert budget). No upgrade
+is justified: sensitivity 100% is dominated by post-onset detections, and
+"confirmed" states inherit a 6.7% benign rate.

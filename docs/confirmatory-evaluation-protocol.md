@@ -37,7 +37,8 @@ workstream and are NOT re-selected here.
 
 ## 2. Confirmatory scenario populations (pre-registered)
 
-Seed block **41000–41299** (stride 7), disjoint from:
+Seed block **41000–42999** (stride 7; 286 available seeds for 148 scenarios),
+globally disjoint across groups and disjoint from:
 - Phase-4 train/val/test (< 15000, stride 7),
 - G1 (20000–20413), G2 (25000–25273), G3 (30000–30203), G4 (35000–35203),
 - all probe seeds used during development (40998/40999 excluded).
@@ -53,6 +54,14 @@ Seed block **41000–41299** (stride 7), disjoint from:
 
 Total: **148 scenarios** (~9 min generation + ~15 min features; measured probe:
 1.0 s gen + 5.7 s features per scenario).
+
+**Protocol amendment record (pre-generation):** the initially frozen seed block
+(41000–41299, 43 seeds) was arithmetically insufficient for the 148 pre-registered
+scenarios; this was discovered during a dry-run of scenario *construction* before
+any confirmatory data was generated or inspected. The block was widened to
+41000–42999 with globally disjoint per-group allocation. No evaluation outcome
+was viewed before or during this amendment; no threshold, model, or metric
+definition changed.
 
 **Exclusions:** scenario ids `*-s40998`, `*-s40999` (used for a timing probe
 during protocol design, disclosed here) are NOT part of any confirmatory group.
