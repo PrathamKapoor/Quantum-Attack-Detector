@@ -1,0 +1,13 @@
+# Development and test dependencies.
+#
+# NOTE: the optional GRU/TCN benchmark models (src/quantumattack/models/gru.py,
+# tcn.py) require PyTorch, which is imported lazily and is NOT installed here.
+# Install it only if you intend to run those comparators:
+#     pip install -r requirements-dev.txt
+#     pip install torch>=2.2
+# The corresponding tests (tests/test_temporal.py) are excluded from the
+# dataset-independent CI subset and require both PyTorch and local datasets.
+-r requirements.txt
+
+pytest>=8.0
+scipy>=1.11          # cross-checks the statistical routines in tests/test_metric_integrity.py

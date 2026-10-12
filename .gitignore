@@ -1,7 +1,35 @@
-# Generated outputs (regenerable via configs/simulation/*.yaml + documented commands)
+# Generated scientific outputs (regenerable via configs/simulation/*.yaml +
+# the commands documented in README "Reproducibility"). Large Parquet datasets
+# and evaluation artifacts are intentionally not committed.
 data/
 artifacts/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Environment variables / credentials (placeholders only in committed examples)
+.env
+.env.*
+!.env.example
+
+# Local scratch, caches, IDE state
 .scratch/
+.freebuff/
+.ipynb_checkpoints/
+.idea/
+.vscode/
+*.swp
