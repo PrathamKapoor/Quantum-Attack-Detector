@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Smoke import
+        run: python -c "import sys; sys.path.insert(0, 'src'); import quantumattack; print(quantumattack.__version__)"
+      - name: Run dataset-independent test suite
+        # The historical research datasets (data/, artifacts/) are git-ignored and
+        # too large to regenerate in CI; tests that require them are excluded here.
+        # See README "Reproducibility" for regenerating them locally.
+        run: |
+          python -m pytest tests/ -q \
+            --ignore=tests/test_phase4_dataset.py \
+            --ignore=tests/test_phase5_dataset.py \
+            --ignore=tests/test_data_integrity.py \
+            --ignore=tests/test_features.py \
+            --ignore=tests/test_temporal.py \
+            --deselect tests/test_confirmation_evidence.py::test_real_simulator_scenarios_end_to_end \
+            --deselect tests/test_conventional_detector.py::test_real_simulator_scenario_end_to_end \
+            --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end
+      - name: Generate a tiny simulated dataset and run the CLI end-to-end
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys, pathlib
+          cfg = {
+            "shared": {"n_blocks": 300, "horizons": [10, 50], "dataset_version": "ci-smoke"},
+            "scenarios": [
+              {"name": "plain", "class": "normal", "seeds": [90901]},
+              {"name": "lo-manipulation", "class": "attack", "seeds": [90902],
+               "sample_onset": [150, 200],
+               "sample": {"lo_attack_attenuation": [0.5, 0.5],
+                          "ramp_min_blocks": [30, 30], "ramp_max_blocks": [40, 40]}},
+            ],
+          }
+          p = pathlib.Path("ci_smoke.yaml"); p.write_text(json.dumps(cfg))
+          env = dict(os.environ); env["PYTHONPATH"] = "src"
+          r = subprocess.run([sys.executable, "-m", "quantumattack.simulator.generate",
+                              "--config", str(p), "--out", "ci_smoke_data"], env=env)
+          if r.returncode != 0:
+              raise SystemExit(r.returncode)
+          out = pathlib.Path("ci_smoke_data")
+          files = sorted(x.name for x in out.iterdir())
+          assert "manifest.json" in files, files
+          m = json.loads((out / "manifest.json").read_text())
+          assert m["block_ms"] == 10.0 and len(m["scenarios"]) == 2, m["block_ms"]
+          print("smoke OK:", files)
+          PY
