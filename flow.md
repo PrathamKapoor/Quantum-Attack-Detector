@@ -436,3 +436,17 @@ Phase 3 report (commit c9cb1a8). Phase 4 (2026-10-09): protocol pre-registration
 lead times & FWR → feature redundancy analysis & Feature Freeze v1 (docs/feature-freeze-v1.md) →
 graph hypothesis evaluation & Graph Gate: HOLD (docs/graph-hypothesis.md) → Scientific Gate:
 ATTACK-SPECIFIC ROBUST SIGNAL → 109 tests passing → decisions D-029..D-033.
+Phase 5 (2026-10-09): independent generalisation G1-G4, simulator-validity audit and
+forecasting robustness under unit-explicit perturbations (commit 6f500b3).
+Reliability workstream (2026-10-11/12): metric-integrity foundations ->
+telemetry-reliability foundations -> operational warning state machine ->
+final reliability research report -> conventional-detector audit (degenerate
+baseline documented) -> pinned logistic solver for cross-process determinism ->
+causal warning emission and independent attack confirmation -> causal CUSUM
+detector with a matched-budget comparison -> confirmation-evidence audit and
+frozen confirmatory protocol -> untouched confirmatory evaluation (148 scenarios)
+-> decisions D-049..D-054.
+Release preparation (2026-10-12): credential audit of tracked content and of all
+21 commits -> artifact classification (data/ and artifacts/ stay local and
+regenerable) -> dependency + packaging configuration -> project README ->
+dataset-independent CI -> fresh-clone verification -> decisions D-055, D-056.

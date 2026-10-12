@@ -25,13 +25,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Smoke import
-        run: python -c "import sys; sys.path.insert(0, 'src'); import quantumattack; print(quantumattack.__version__)"
+        run: python -c "import quantumattack; print('quantumattack', quantumattack.__version__)"
       - name: Run dataset-independent test suite
         # The historical research datasets (data/, artifacts/) are git-ignored and
-        # too large to regenerate in CI; tests that require them are excluded here.
-        # See README "Reproducibility" for regenerating them locally.
+        # too large to regenerate in CI, and tests/test_temporal.py additionally
+        # requires the optional PyTorch dependency. Each test excluded below was
+        # verified to fail without those inputs. See README "Reproducibility"
+        # for regenerating the datasets locally.
         run: |
-          python -m pytest tests/ -q \
+          python -m pytest tests/ -q -ra \
             --ignore=tests/test_phase4_dataset.py \
             --ignore=tests/test_phase5_dataset.py \
             --ignore=tests/test_data_integrity.py \
@@ -39,7 +41,8 @@ jobs:
             --ignore=tests/test_temporal.py \
             --deselect tests/test_confirmation_evidence.py::test_real_simulator_scenarios_end_to_end \
             --deselect tests/test_conventional_detector.py::test_real_simulator_scenario_end_to_end \
-            --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end
+            --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end \
+            --deselect tests/test_conventional_detector_integrity.py::test_normalized_sigma_threshold_differs_from_absolute_quantile
       - name: Generate a tiny simulated dataset and run the CLI end-to-end
         run: |
           python - <<'PY'

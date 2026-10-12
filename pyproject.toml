@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantumattack"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Research framework for causal attack monitoring, sequential detection, and early-warning evaluation in simulated CV-QKD systems."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,9 @@ ml = ["torch>=2.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "quantumattack.__version__" }   # single source of truth: src/quantumattack/__init__.py
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

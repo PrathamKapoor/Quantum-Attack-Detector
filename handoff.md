@@ -1,9 +1,34 @@
 # handoff.md
 
 Exact current implementation state for continuation. Updated 2026-10-12
-(workstream: independent scientific validation, adversarial reproducibility
-audit, untouched confirmatory evaluation). All statements traceable to source,
-tests, or hash-recorded artifacts; negative results preserved.
+(workstream: public release preparation on top of independent scientific
+validation, adversarial reproducibility audit and the untouched confirmatory
+evaluation). All statements traceable to source, tests, or hash-recorded
+artifacts; negative results preserved.
+
+---
+
+## 0. Publication Status (release preparation, D-055/D-056)
+
+- **Published:** `https://github.com/PrathamKapoor/Quantum-Attack-Detector`
+  (branch `main`, full history preserved, non-force push).
+- **Credential audit:** 120 tracked files + 187 unique blobs across 21 commits
+  scanned (GitHub tokens, AWS key IDs, PEM private-key headers, bearer tokens,
+  password/secret assignments, Slack webhooks): **0 hits**, working tree and
+  reachable history.
+- **Local-only by design:** `data/` and `artifacts/` (datasets, features,
+  evaluation JSON, evidence bundles, confirmatory runs) remain git-ignored and
+  are regenerated from `configs/simulation/*.yaml` (commands in README
+  "Reproducibility"). Largest tracked file is 94 KB.
+- **Fresh-clone verified:** clone into an empty directory → venv → `pip install -e .`
+  + `requirements-dev.txt` → documented quick-start commands, all without
+  access to the original working tree.
+- **Full local suite:** `255 passed in 117.09 s`. Dataset-independent CI subset
+  passes from a clean clone.
+- **OPEN — license:** no license file exists and none was invented. `pyproject.toml`
+  declares `license = { text = "Proprietary" }`; the README states that the code is
+  publicly viewable but not licensed, and reuse/redistribution requires the author's
+  permission. Selecting an OSI license remains an author decision (D-056).
 
 ---
 
@@ -66,7 +91,7 @@ tests, or hash-recorded artifacts; negative results preserved.
 ## 3. Verification Commands (all executed, exit 0)
 
 ```
-python -m pytest tests/ -q -ra            # 255 passed (104 s)
+python -m pytest tests/ -q -ra            # 255 passed (117.09 s, re-run 2026-10-12 at b5a2293)
 python scripts/evaluate_confirmatory.py   # 148 scenarios, immutable outputs
 python scripts/analyze_confirmatory.py    # regrouped metrics + negative controls
 python -m pytest tests/test_confirmation_evidence.py -q   # 10 passed
@@ -103,14 +128,23 @@ manifest_generation.json, data/, features/}`.
    for stronger generalization claims.
 5. NOT recommended: larger models, GNN, denoising — none addresses the measured
    bottlenecks.
+6. **Publication:** choose a license (MIT/Apache-2.0/GPL or keep all-rights-reserved);
+   this is an author decision and was deliberately not guessed (D-056).
+7. The dataset-dependent integration tests only run after regenerating `data/` and
+   `artifacts/` locally; CI covers the dataset-independent subset only.
 
 ## 6. Critical Context / Instructions
 
-- Commit identity: `PrathamKapoor <prathamkapoor027@gmail.com>`; no remote; no push.
-- `artifacts/` is git-ignored; confirmatory outputs are local evidence (hashes recorded).
+- Commit identity: `PrathamKapoor <prathamkapoor027@gmail.com>` (repo-local config).
+- Remote: `origin` = `https://github.com/PrathamKapoor/Quantum-Attack-Detector.git`
+  (public, branch `main`). Never force-push; push only from a clean, green state.
+- `artifacts/` and `data/` are git-ignored; confirmatory outputs are local evidence
+  (hashes recorded).
 - Never overwrite v1 evidence or confirmatory stamp directories.
 - Any future claim must respect: emission-based timestamps (D-049), evidence-driven
   confirmation (D-050), episode/occupancy accounting (D-051), and the lifecycle
   distinction (detection during preparation ≠ prediction before hostile action).
 - Reproduce: `pytest tests/ -q`; `python scripts/evaluate_confirmatory.py`;
   `python scripts/analyze_confirmatory.py <stamp>`.
+- Public documentation must keep the README's measured numbers in step with the
+  decision log; no number may appear that was not produced by a recorded run.

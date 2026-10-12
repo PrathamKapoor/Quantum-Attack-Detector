@@ -78,19 +78,19 @@ Verified implemented capabilities (each traceable to source and tests):
 
 | Category | Technology | Notes |
 |---|---|---|
-| Core language | Python ≥ 3.11 | verified on 3.13 |
-| Numerical computing | NumPy 2.4 | vectorized simulation and statistics |
-| Data processing | pandas 3.0, PyArrow 25 | Parquet telemetry and manifests |
-| Machine learning | scikit-learn 1.8 | logistic forecasting baselines |
-| Optional ML benchmarks | PyTorch ≥ 2.2 | GRU/TCN comparators (lazy import; `pip install .[ml]`) |
-| Statistics | SciPy (dev) | cross-checks of interval routines in tests |
-| Configuration | PyYAML 6 | simulator batch configs |
-| Testing | pytest ≥ 8 | 255 tests (see below) |
+| Core language | Python ≥ 3.11 | verified on 3.13.14 |
+| Numerical computing | NumPy ≥ 1.26 | vectorized simulation and statistics |
+| Data processing | pandas ≥ 2.2, PyArrow ≥ 15 | Parquet telemetry and manifests |
+| Machine learning | scikit-learn ≥ 1.4 | logistic forecasting baselines |
+| Optional ML benchmarks | PyTorch ≥ 2.2 | GRU/TCN comparators (lazy import; `pip install ".[ml]"`) |
+| Statistics | SciPy ≥ 1.11 (dev only) | cross-checks of interval routines in tests |
+| Configuration | PyYAML ≥ 6 | simulator batch configs |
+| Testing | pytest ≥ 8 | 255 tests (see [Running tests](#running-tests)) |
 | Experiment execution | CLI modules + scripts | `python -m quantumattack.simulator.generate`, evaluation runners |
 | Version control | Git | full development history preserved |
 | CI | GitHub Actions | dataset-independent test subset on Python 3.11/3.13 |
 
-Transitive dependencies are intentionally not listed as core technologies.
+Minimum versions are the declared floors in `requirements.txt`; the whole set was installed and exercised from a clean virtual environment (numpy 2.5.4, pandas 3.0.6, scikit-learn 1.9.1, pyarrow 26.0.0, PyYAML 6.0.3, pytest 9.1.1). Transitive dependencies are intentionally not listed as core technologies.
 
 ## Architecture
 
@@ -172,7 +172,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e .
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q --ignore=tests/test_phase4_dataset.py --ignore=tests/test_phase5_dataset.py --ignore=tests/test_data_integrity.py --ignore=tests/test_features.py --ignore=tests/test_temporal.py --deselect tests/test_confirmation_evidence.py::test_real_simulator_scenarios_end_to_end --deselect tests/test_conventional_detector.py::test_real_simulator_scenario_end_to_end --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end
+python -m pytest tests/ -q -ra --ignore=tests/test_phase4_dataset.py --ignore=tests/test_phase5_dataset.py --ignore=tests/test_data_integrity.py --ignore=tests/test_features.py --ignore=tests/test_temporal.py --deselect tests/test_confirmation_evidence.py::test_real_simulator_scenarios_end_to_end --deselect tests/test_conventional_detector.py::test_real_simulator_scenario_end_to_end --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end --deselect tests/test_conventional_detector_integrity.py::test_normalized_sigma_threshold_differs_from_absolute_quantile
 ```
 
 The excluded tests require the historical research datasets, which are **not** in the repository (see [Reproducibility](#reproducibility)).
@@ -184,13 +184,14 @@ git clone https://github.com/PrathamKapoor/Quantum-Attack-Detector.git
 cd Quantum-Attack-Detector
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e . && pip install -r requirements-dev.txt
-python -m pytest tests/ -q \
+python -m pytest tests/ -q -ra \
   --ignore=tests/test_phase4_dataset.py --ignore=tests/test_phase5_dataset.py \
   --ignore=tests/test_data_integrity.py --ignore=tests/test_features.py \
   --ignore=tests/test_temporal.py \
   --deselect tests/test_confirmation_evidence.py::test_real_simulator_scenarios_end_to_end \
   --deselect tests/test_conventional_detector.py::test_real_simulator_scenario_end_to_end \
-  --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end
+  --deselect tests/test_conventional_detector.py::test_attack_scenario_is_detected_end_to_end \
+  --deselect tests/test_conventional_detector_integrity.py::test_normalized_sigma_threshold_differs_from_absolute_quantile
 ```
 
 No external credentials, API keys, databases, or environment variables are required — the simulator and evaluation are fully offline.
@@ -203,7 +204,7 @@ pip install ".[ml]"
 
 ## Running simulations
 
-Generate a small simulated dataset (two scenarios, ~3 seconds):
+Generate the small Phase-1 example dataset (8 scenarios, 1,000 blocks each):
 
 ```powershell
 python -m quantumattack.simulator.generate --config configs/simulation/phase1.yaml --out data/example
@@ -243,9 +244,9 @@ Outputs are written under `artifacts/` (git-ignored). Three evaluation tiers are
 python -m pytest tests/ -q -ra
 ```
 
-- **255 tests** on the full local checkout (including dataset-dependent integration tests).
-- **Dataset-independent subset:** the CI command shown in [Quick start](#quick-start) (runs in minutes, no datasets required).
-- Tests that require `data/`/`artifacts/` are marked by their module docstrings and are excluded from CI; they validate real simulator output end-to-end.
+- **255 tests** pass on the full local checkout (including the dataset-dependent integration tests).
+- **Dataset-independent subset:** the CI command shown in [Quick start](#quick-start) — no datasets required, and it is the command this repository was validated with from a fresh clone.
+- Tests that read the git-ignored `data/`/`artifacts/` directories are excluded from CI **by name** (5 modules plus 4 individual tests). They validate real simulator output end-to-end and require the regenerated datasets.
 
 ## Reproducibility
 
