@@ -47,6 +47,9 @@ from quantumattack.operational_states import (
     PRE_ATTACK_WARNING, ACTIVE_ATTACK_CONFIRMED,
     DEGRADED_TELEMETRY, ABSTAINING,
 )
+from quantumattack.baselines.conventional import (
+    CusumConfig, calibrate_cusum_threshold, confirmation_evidence_from_cusum,
+)
 from quantumattack.forecast_horizons import (
     classify_warning_outcome, HORIZON_VALID, EXTENDED_ALERT, ONSET_DETECTION,
     POST_ONSET_CONFIRMATION, NO_WARNING,
@@ -444,6 +447,33 @@ def main():
     report["multi_horizon_coherence"] = coh
 
     # ------------------------------------------------------------------
+    # 5b. Conventional detector calibration (Phase-4 train ref + val budget)
+    #     Supplies REAL online confirmation evidence for the state machine
+    #     (D-050 contract) from causal telemetry measurements.
+    # ------------------------------------------------------------------
+    print("[5b] conventional detector calibration ...", flush=True)
+    train_benign_ids = [s["scenario_id"] for s in m4["scenarios"]
+                        if s["scenario_id"] in set(split4.train) and s["scenario_class"] == "NORMAL"]
+    val_benign_ids = [s["scenario_id"] for s in m4["scenarios"]
+                      if s["scenario_id"] in set(split4.val) and s["scenario_class"] == "NORMAL"]
+    ref_df = pd.concat(
+        [pd.read_parquet(Path(args.phase4_features) / f"{sid}.parquet") for sid in train_benign_ids],
+        ignore_index=True)
+    val_df = pd.concat(
+        [pd.read_parquet(Path(args.phase4_features) / f"{sid}.parquet").assign(scenario_id=sid)
+         for sid in val_benign_ids],
+        ignore_index=True)
+    cusum_base = CusumConfig(persistence_k=3, cooldown_blocks=50, warmup_blocks=200)
+    cusum_cal = calibrate_cusum_threshold(ref_df, val_df, cusum_base, target_fpr=0.10)
+    cusum_cfg = CusumConfig(k_drift=cusum_cal.config["k_drift"],
+                            h_threshold=cusum_cal.h_threshold,
+                            persistence_k=3, cooldown_blocks=50, warmup_blocks=200)
+    print(f"      calibrated k={cusum_cfg.k_drift} h={cusum_cfg.h_threshold} "
+          f"val FPR={cusum_cal.achieved_scenario_fpr:.3f} "
+          f"(budget 0.10, meets={cusum_cal.config.get('meets_target')})", flush=True)
+    report["conventional_detector_calibration"] = cusum_cal.to_dict()
+
+    # ------------------------------------------------------------------
     # 6. False-alarm operational burden: NORMAL vs BENIGN_DRIFT
     #    (episode-based and occupancy-based accounting; repair D-051)
     # ------------------------------------------------------------------
@@ -461,10 +491,12 @@ def main():
             sclass = str(df_pred["scenario_class"].iloc[0])
             onset = int(df_pred["attack_onset"].iloc[0])
             pv = df_pred["p_attack_future_h100"].to_numpy(float)
-            # Operational state timeline: confirmation evidence is NOT supplied in
-            # this evaluation (no validated detector exists yet -- D-047), so the
-            # machine can warn but never (mis)confirm.
-            trace = operational_state_series(pv, policy=opol)
+            # Operational state timeline with REAL confirmation evidence from the
+            # calibrated sequential detector (D-050 contract): evidence is causal
+            # telemetry measurement, never ground truth.
+            evidence, ev_usable = confirmation_evidence_from_cusum(
+                eval_frames[sid], cusum_cal, cusum_cfg)
+            trace = operational_state_series(pv, policy=opol, confirmation_evidence=evidence)
             episodes = alert_episodes_from_trace(trace, sid)
             for e in episodes:
                 event_ledger.append({
@@ -696,11 +728,15 @@ def main():
         "policy": opol.to_dict(),
         "by_partition": ops,
         "under_induced_missing_telemetry": ops_degraded,
-        "confirmation_evidence_supplied": False,
+        "confirmation_evidence_supplied": True,
+        "confirmation_evidence_source": (
+            "calibrated sequential CUSUM detector on causal telemetry "
+            "(conventional.confirmation_evidence_from_cusum); decision threshold "
+            "h calibrated on Phase-4 validation benign"),
         "note": ("ACTIVE_ATTACK_CONFIRMED requires independent active-attack evidence "
-                 "(confirmation_evidence mask); no validated detector evidence exists yet "
-                 "(D-047), so this evaluation supplies none and the machine cannot confirm "
-                 "(D-050). Degraded/abstain blocks are NOT counted as successful negatives."),
+                 "(confirmation_evidence mask); this evaluation supplies it from the "
+                 "calibrated sequential detector (D-050/D-052), not from ground truth. "
+                 "Degraded/abstain blocks are NOT counted as successful negatives."),
     }
 
     # ------------------------------------------------------------------

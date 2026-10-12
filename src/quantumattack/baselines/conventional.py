@@ -459,6 +459,46 @@ def detect_warnings_cusum(
     return {"warning_blocks": fires, "statistic": s_max, "usable_mask": usable}
 
 
+def confirmation_evidence_from_cusum(
+    df: pd.DataFrame,
+    calibration: CusumCalibration,
+    config: CusumConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    """ONLINE active-attack evidence mask derived from the sequential detector.
+
+    The operational state machine requires INDEPENDENT active-attack evidence
+    before entering ACTIVE_ATTACK_CONFIRMED (D-050). This function supplies that
+    evidence from real, causal telemetry measurements: a block is evidence when
+    the calibrated detector statistic has crossed the decision threshold ``h``
+    (an excursion of the CUSUM statistic). No ground-truth labels, attack onset
+    or future telemetry participate.
+
+    Returns ``(evidence_mask, usable_mask)``; the state machine applies its own
+    evidence persistence. During the warmup window no evidence is produced
+    (the baseline is not yet established), so the machine stays out of the
+    confirmed state there.
+
+    LIMITATION (disclosed): evidence here means "a security indicator has
+    shifted beyond the calibrated detection boundary", which is evidence of a
+    detected anomaly, not a courtroom-grade proof of an attacker's actions.
+    It is, however, real measurement evidence computed online from telemetry —
+    unlike a manually supplied test mask.
+    """
+    config.validate()
+    s_max, usable = cusum_statistic(df, calibration.reference, config)
+    evidence = usable & (s_max >= calibration.h_threshold)
+    return evidence, usable
+
+
+def confirmation_evidence_series(
+    df: pd.DataFrame,
+    calibration: CusumCalibration,
+    config: CusumConfig,
+) -> np.ndarray:
+    """Convenience wrapper returning only the evidence mask."""
+    return confirmation_evidence_from_cusum(df, calibration, config)[0]
+
+
 def calibrate_cusum_threshold(
     reference_df: pd.DataFrame,
     benign_df: pd.DataFrame,
