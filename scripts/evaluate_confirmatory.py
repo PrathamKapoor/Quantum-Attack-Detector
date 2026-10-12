@@ -67,7 +67,7 @@ FROZEN = {
                      "min_history_blocks": 100,
                      "horizons": [10, 25, 50, 100]},
     "horizon_primary": 100,
-    "seed_block": {"start": 41000, "end": 41299, "stride": 7},
+    "seed_block": {"start": 41000, "end": 42999, "stride": 7},
     "excluded_seeds": [40998, 40999],
 }
 
@@ -152,39 +152,44 @@ def git_head() -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
-def allocate_seeds(n_total: int) -> list[int]:
-    """Deterministic seed allocation from the frozen block (stride 7)."""
+def allocate_seeds(n_total: int, cursor: dict) -> list[int]:
+    """Deterministic, globally disjoint seed allocation (stride 7, shared cursor)."""
     start, end, stride = FROZEN["seed_block"]["start"], FROZEN["seed_block"]["end"], FROZEN["seed_block"]["stride"]
-    pool = list(range(start, end + 1, stride))
-    excluded = set(FROZEN["excluded_seeds"])
-    pool = [s for s in pool if s not in excluded]
-    if len(pool) < n_total:
-        raise RuntimeError(f"seed pool too small: {len(pool)} < {n_total}")
-    return pool[:n_total]
+    pool = [s for s in range(start, end + 1, stride)
+            if s not in set(FROZEN["excluded_seeds"])]
+    take = pool[cursor["idx"]: cursor["idx"] + n_total]
+    if len(take) < n_total:
+        raise RuntimeError(
+            f"seed pool exhausted: need {n_total}, have {len(take)} "
+            f"(cursor {cursor['idx']} of {len(pool)} available)")
+    cursor["idx"] += n_total
+    return take
 
 
 def build_config() -> dict:
-    """Build the batch config with deterministic per-group seed allocation."""
-    offset = 0
+    """Build the batch config with deterministic, globally disjoint seeds."""
     shared = {"n_blocks": 2000, "horizons": [10, 25, 50, 100],
               "dataset_version": "confirmatory-v1"}
-    scenarios = []
-    allocation = {}
+    scenarios: list[dict] = []
+    allocation: dict[str, list[int]] = {}
+    cursor = {"idx": 0}
     for group, defs, n in C_GROUPS:
-        seeds = allocate_seeds(n)
+        seeds = allocate_seeds(n, cursor)
         per = max(1, n // len(defs))
         idx = 0
-        group_seeds = []
-        for d in defs:
-            take = seeds[idx * per:(idx + 1) * per] if idx < len(defs) - 1 \
+        group_seeds: list[int] = []
+        built: list[dict] = []
+        for j, d in enumerate(defs):
+            take = seeds[idx * per: (idx + 1) * per] if j < len(defs) - 1 \
                 else seeds[idx * per:]
-            d = dict(d)
-            d["seeds"] = take
-            group_seeds.extend(take)
+            nd = dict(d)
+            nd["seeds"] = [int(s) for s in take]
+            nd["partition"] = group
+            group_seeds.extend(nd["seeds"])
+            built.append(nd)
             idx += 1
         allocation[group] = group_seeds
-        scenarios.extend(defs)
-        offset += n
+        scenarios.extend(built)
     return {"shared": shared, "scenarios": scenarios}, allocation
 
 
@@ -258,7 +263,9 @@ def main() -> int:
             raise RuntimeError(f"generation failed rc={r.returncode}")
 
     manifest = json.load(open(data_dir / "manifest.json", encoding="utf-8"))
-    (data_dir / "manifest.json").rename(data_dir / "manifest_generation.json")
+    # keep manifest.json in place (features_cli reads it); record an immutable copy
+    (data_dir / "manifest_generation.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8")
     report["dataset_manifest"] = manifest.get("batch_config", {})
     report["n_scenarios_generated"] = len(manifest["scenarios"])
     print(f"[generate] {len(manifest['scenarios'])} scenarios; "
