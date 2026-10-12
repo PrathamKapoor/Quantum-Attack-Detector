@@ -21,8 +21,10 @@ artifacts; negative results preserved.
   are regenerated from `configs/simulation/*.yaml` (commands in README
   "Reproducibility"). Largest tracked file is 94 KB.
 - **Fresh-clone verified:** clone into an empty directory → venv → `pip install -e .`
-  + `requirements-dev.txt` → documented quick-start commands, all without
-  access to the original working tree.
+  + `requirements-dev.txt` → dataset-independent subset **194 passed / 4 deselected**;
+  `simulator.generate` on `configs/simulation/phase1.yaml` exported **65 scenarios**
+  in 16 s; `features_cli` exported **65 feature files × 218 columns**. No access to
+  the original working tree or its datasets was required.
 - **Full local suite:** `255 passed in 117.09 s`. Dataset-independent CI subset
   passes from a clean clone.
 - **OPEN — license:** no license file exists and none was invented. `pyproject.toml`

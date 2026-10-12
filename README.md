@@ -131,16 +131,18 @@ flowchart LR
 
 ```text
 Quantum-Attack-Detector/
-├── configs/simulation/       # deterministic scenario batch definitions
-├── docs/                     # protocols, research reports, audits
-├── scripts/                  # evaluation runners and audit tooling
-├── src/quantumattack/        # core package (simulator, baselines, evaluation)
-├── tests/                    # 255 regression and acceptance tests
-├── decisions.md              # sequential decision log (D-001…)
-├── flow.md                   # verified system call flow
-├── handoff.md                # current verified state
-├── pyproject.toml            # packaging + dependencies
-└── requirements*.txt         # pinned-ecosystem requirements
+├── .github/workflows/ci.yml   # dataset-independent test suite + CLI smoke test
+├── configs/simulation/        # deterministic scenario batch definitions
+├── docs/                      # protocols, research reports, audits
+├── scripts/                   # evaluation runners and audit tooling
+├── src/quantumattack/         # core package (simulator, baselines, evaluation)
+├── tests/                     # 255 regression and acceptance tests
+├── decisions.md               # sequential decision log (D-001…)
+├── flow.md                    # verified system call flow
+├── handoff.md                 # current verified state
+├── pyproject.toml             # packaging + dependencies
+├── requirements*.txt          # dependency manifests
+└── SECURITY.md                # what counts as a defect in this project
 ```
 
 Historical phase-named research documents under `docs/` (e.g. `phase5-final-report.md`) are preserved as scientific evidence and are referenced by the decision log.
@@ -204,15 +206,15 @@ pip install ".[ml]"
 
 ## Running simulations
 
-Generate the small Phase-1 example dataset (8 scenarios, 1,000 blocks each):
+Generate the small Phase-1 example dataset (8 scenario definitions × 5 seeds, plus the matched counterfactual scenario generated for each paired attack — 65 Parquet files of 2,000 blocks each, about 15 s):
 
 ```powershell
 python -m quantumattack.simulator.generate --config configs/simulation/phase1.yaml --out data/example
 ```
 
-- `--config` — a YAML/JSON batch specification (see `configs/simulation/phase1.yaml` for the schema: `shared.n_blocks`, `shared.horizons`, per-scenario `class`, `name`, `seeds`, optional `env` overrides and parameter `sample` ranges).
-- `--out` — output directory; receives one Parquet file per scenario plus `manifest.json` recording `block_ms = 10.0`, schema version, and column classes.
-- Random seeds are per-scenario and deterministic: identical seeds and configs reproduce identical telemetry bit-for-bit.
+- `--config` — a YAML/JSON **batch specification** expanded by `simulator/generate.py::build_scenario_configs`. Top-level keys: `n_blocks` (default 2000), `horizons` (default `[10, 25, 50, 100]`), and a seed source — either `seeds` (simple expansion, Phase-1/2 style), `attack_seeds`/`benign_seeds` (Phase-3 style), partition pools `train_seeds`/`val_seeds`/`test_seeds`/`ood_seeds` (Phase-4 style) or per-scenario `seeds` (Phase-5 style). `shared.dataset_version` labels the batch. Each entry in `scenarios` has `name`, `class` (`normal`/`attack`), optional `attack: {attack_type, onset_block, ...}`, `pair`, `env` overrides and a `sample` map of `[lo, hi]` ranges sampled deterministically per scenario seed.
+- `--out` — output directory; receives one Parquet file per scenario (35 signal channels plus metadata, labels and evaluation-only columns — 64 in total) plus `manifest.json` recording `block_ms = 10.0`, the schema version, the column classes and the batch configuration.
+- Seeds are deterministic: the same config and seeds reproduce identical telemetry.
 - Compute causal features:
 
 ```powershell
@@ -245,7 +247,7 @@ python -m pytest tests/ -q -ra
 ```
 
 - **255 tests** pass on the full local checkout (including the dataset-dependent integration tests).
-- **Dataset-independent subset:** the CI command shown in [Quick start](#quick-start) — no datasets required, and it is the command this repository was validated with from a fresh clone.
+- **Dataset-independent subset: 194 tests** — the CI command shown in [Quick start](#quick-start). No datasets required; this is the command the repository was validated with from a fresh clone.
 - Tests that read the git-ignored `data/`/`artifacts/` directories are excluded from CI **by name** (5 modules plus 4 individual tests). They validate real simulator output end-to-end and require the regenerated datasets.
 
 ## Reproducibility
@@ -273,8 +275,8 @@ python -m pytest tests/ -q -ra
 |---|---|---|
 | Benign false-warning rate | **51.7% [39.3, 63.8]** | **6.7% [2.6, 15.9]** |
 | Horizon-valid forecasts (H=100) | **0/88 (0.000)** | not applicable (detector) |
-| Attack sensitivity (any alert) | 100% (pre-onset, but beyond horizon) | 100% (88/88) |
-| Pre-onset detection | 100% of scenarios, median lead 887 blocks (8.87 s — outside horizon) | 55.7% of attacks, median lead 96 blocks (0.96 s) |
+| Attack sensitivity (any alert) | 87/88 emitted an alert at all | 100% (88/88) |
+| Pre-onset alerts | 87/88 scenarios emitted a pre-onset alert, median first-emission lead 887 blocks (8.87 s — outside the horizon) | 55.7% [45.3, 65.6] of attacks (49/88), median pre-onset lead 96 blocks (0.96 s) |
 | Extreme-stress benign FPR | 43.3% [27.4, 60.8] | 10.0% [3.5, 25.6] |
 
 Interpretation, stated plainly:
@@ -292,8 +294,8 @@ The complete evidence trail — including every invalidated metric — is in [`d
 - **Synthetic-only validation.** The CV-QKD model is a closed-form Gaussian simulator anchored to published parameter-estimation cadence, but it has never been compared against hardware, published experimental traces, or an independent external simulator. Precursor observability is a modeling assumption.
 - **No real-world calibration.** Probabilities are calibrated to the synthetic attack distribution only; they are not real-world attack probabilities.
 - **Forecasting operating point is not viable** as configured (0/88 horizon-valid; ~52% benign FWR). Any future operating-point work must re-select on validation data with adopted calibration.
-- **Warmup contamination:** an attack already active during the detector's 200-block baseline window is masked for weak signatures (quantified: 8–10σ shifts → 0 detections).
-- **Benign-envelope overlap:** ~45% of attacks show no pre-onset detector statistic above the benign 95th percentile; pre-onset detection covers the ramp subset only.
+- **Warmup contamination** (measured by a synthetic probe on real telemetry): an attack already active during the detector's 200-block baseline window is masked for weak signatures (8–10σ shifts → 0 detections); the strongest family remains detectable.
+- **Benign-envelope overlap** (Phase-5 exposed data): 45 of 100 attacks show no pre-onset detector statistic above the benign 95th percentile; pre-onset detection covers the ramp subset only.
 - **Confirmation false-alert inheritance:** 4/60 benign scenarios reached `ACTIVE_ATTACK_CONFIRMED` via detector evidence.
 - **Cross-horizon probability incoherence:** separately fitted per-horizon models violate monotonicity on ~32–38% of adjacent pairs.
 - **Limited attack-family coverage:** five families in one protocol variant (GMCS heterodyne); no DV-QKD, no Trojan-horse, no wavelength attacks.
@@ -319,7 +321,7 @@ Contributions are welcome as ordinary pull requests. Please:
 
 ## Security
 
-This is research software for studying detection methodology in simulation; it does not connect to live systems and performs no network operations beyond package installation. Vulnerabilities in the code itself can be reported via GitHub Issues. There is no dedicated security-response team for this project; do not report simulated "attack" behavior as a vulnerability — it is the subject of study.
+This is research software for studying detection methodology in simulation; it does not connect to live systems and performs no network operations beyond package installation. Do not report simulated attack behaviour as a vulnerability — it is the subject of study. See [`SECURITY.md`](SECURITY.md) for what is in scope and how to report a genuine defect.
 
 ## License
 
